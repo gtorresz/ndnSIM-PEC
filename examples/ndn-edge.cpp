@@ -98,7 +98,7 @@ main(int argc, char* argv[])
 
   int servercount = 0;
   int basecount = 0;
-  ifstream configFile ( "/home/george/PEC/topo.txt", std::ios::in );	// Topology file
+  ifstream configFile ( "topologies/topo.txt", std::ios::in );	// Topology file
   std::string strLine, strcallback;
   bool gettingNodeCount = false, buildingNetworkTopo = false, assignServers = false;
   bool assignBases = false, assignClients = false, assignPECs = false;
