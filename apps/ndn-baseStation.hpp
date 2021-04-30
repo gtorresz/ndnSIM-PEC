@@ -21,13 +21,23 @@
 #ifndef NDN_QOS_PRODUCER_H
 #define NDN_QOS_PRODUCER_H
 
-#include "ns3/ndnSIM/model/ndn-common.hpp"
-
 #include "ndn-app.hpp"
 #include "ns3/ndnSIM/model/ndn-common.hpp"
 #include <unordered_set>
 #include "ns3/nstime.h"
 #include "ns3/ptr.h"
+
+#include "ns3/ndnSIM/utils/ndn-rtt-estimator.hpp"
+#include "ns3/random-variable-stream.h"
+
+#include <set>
+#include <map>
+
+#include <boost/multi_index_container.hpp>
+#include <boost/multi_index/tag.hpp>
+#include <boost/multi_index/ordered_index.hpp>
+#include <boost/multi_index/member.hpp>
+
 
 namespace ns3 {
 namespace ndn {
@@ -59,14 +69,57 @@ public:
    * @brief Send data to subscribed nodes or send out ack.
    */
   void
-  SendData(const Name &dataName);
+  SendData(const Name &dataName, bool payload);
 
   void
   SendTimeout();
 
+  void
+  SendGathered();
+
+
+  void
+  ScheduleNextPacket();
+
+  void
+  OnTimeout(uint32_t sequenceNumber);
+
+  void
+  OnData(shared_ptr<const Data> data );
+
+  void
+  WillSendOutInterest(uint32_t sequenceNumber);
+
+  void
+  SendPacket();
+
+  void
+  CheckRetxTimeout();
+
+  /**
+   * \brief Modifies the frequency of checking the retransmission timeouts
+   * \param retxTimer Timeout defining how frequent retransmission timeouts should be checked
+   */
+  void
+  SetRetxTimer(Time retxTimer);
+
+  /**
+   * \brief Returns the frequency of checking the retransmission timeouts
+   * \return Timeout defining how frequent retransmission timeouts should be checked
+   */
+  Time
+  GetRetxTimer() const;
+
+
+  std::vector<std::string>
+  SplitString( std::string strLine, char delimiter );
+
 public:
   typedef void (*ReceivedInterestTraceCallback)( uint32_t, shared_ptr<const Interest> );
   typedef void (*SentDataTraceCallback)( uint32_t, shared_ptr<const Data> );
+  typedef void (*SentInterestTraceCallback)( uint32_t, shared_ptr<const Interest> );
+  typedef void (*ReceivedDataTraceCallback)( uint32_t, shared_ptr<const Data> );
+
 
 protected:
   // inherited from Application base class.
@@ -77,6 +130,15 @@ protected:
   StopApplication(); // Called at time specified by Stop
 
 private:
+  Ptr<UniformRandomVariable> m_rand; ///< @brief nonce generator
+  uint32_t m_seq;      ///< @brief currently requested sequence number
+  uint32_t m_seqMax;
+  EventId m_sendEvent; ///< @brief EventId of pending "send packet" event
+  Time m_retxTimer;    ///< @brief Currently estimated retransmission timer
+  EventId m_retxEvent; ///< @brief Event to check whether or not retransmission should be performed
+
+  Time m_txInterval;
+  Name m_interestName;  
   Name m_prefix;
   Name m_postfix;
   uint32_t m_virtualPayloadSize;
@@ -88,13 +150,87 @@ private:
   Name m_prefixWithoutSequence;
   size_t m_receivedpayload;
   size_t m_subDataSize; //Size of subscription data, in Kbytes
-  std::unordered_set<std::string> servers;  
-  uint32_t m_signature;
+  std::unordered_map<std::string, std::string> servers;  
+  uint32_t m_proactive;
   Name m_keyLocator;
+  uint32_t m_signature;
+  uint32_t m_hoplimit;
+  uint32_t m_offset; //random offset
+  uint32_t m_doRetransmission; //retransmit lost interest packets if set to 1
+  Time m_interestLifeTime;
+  Ptr<RttEstimator> m_rtt; ///< @brief RTT estimator
+  std::vector<Name> pending;
 
 protected:
+  TracedCallback < uint32_t, shared_ptr<const Interest> > m_sentInterest;
+  TracedCallback < uint32_t, shared_ptr<const Data> > m_receivedData;
   TracedCallback <  uint32_t, shared_ptr<const Interest> > m_receivedInterest;
   TracedCallback <  uint32_t, shared_ptr<const Data> > m_sentData;
+
+ /// @cond include_hidden
+  /**
+   * \struct This struct contains sequence numbers of packets to be retransmitted
+   */
+  struct RetxSeqsContainer : public std::set<uint32_t> {
+  };
+
+  RetxSeqsContainer m_retxSeqs; ///< \brief ordered set of sequence numbers to be retransmitted
+
+  /**
+   * \struct This struct contains a pair of packet sequence number and its timeout
+   */
+  struct SeqTimeout {
+    SeqTimeout(uint32_t _seq, Time _time)
+      : seq(_seq)
+      , time(_time)
+    {
+    }
+
+    uint32_t seq;
+    Time time;
+  };
+  /// @endcond
+
+  /// @cond include_hidden
+  class i_seq {
+  };
+  class i_timestamp {
+  };
+  /// @endcond
+
+  /// @cond include_hidden
+  /**
+   * \struct This struct contains a multi-index for the set of SeqTimeout structs
+   */
+  struct SeqTimeoutsContainer
+    : public boost::multi_index::
+        multi_index_container<SeqTimeout,
+                              boost::multi_index::
+                                indexed_by<boost::multi_index::
+                                             ordered_unique<boost::multi_index::tag<i_seq>,
+                                                            boost::multi_index::
+                                                              member<SeqTimeout, uint32_t,
+                                                                     &SeqTimeout::seq>>,
+                                           boost::multi_index::
+                                             ordered_non_unique<boost::multi_index::
+                                                                  tag<i_timestamp>,
+                                                                boost::multi_index::
+                                                                  member<SeqTimeout, Time,
+                                                                         &SeqTimeout::time>>>> {
+  };
+
+  SeqTimeoutsContainer m_seqTimeouts; ///< \brief multi-index for the set of SeqTimeout structs
+
+  SeqTimeoutsContainer m_seqLastDelay;
+  SeqTimeoutsContainer m_seqFullDelay;
+  std::map<uint32_t, uint32_t> m_seqRetxCounts;
+
+  TracedCallback<Ptr<App> /* app */, uint32_t /* seqno */, Time /* delay */, int32_t /*hop count*/>
+    m_lastRetransmittedInterestDataDelay;
+  TracedCallback<Ptr<App> /* app */, uint32_t /* seqno */, Time /* delay */,
+                 uint32_t /*retx count*/, int32_t /*hop count*/> m_firstInterestDataDelay;
+
+  /// @endcond
 
 };
 

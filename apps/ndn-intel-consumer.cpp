@@ -37,6 +37,10 @@
 
 #include <boost/lexical_cast.hpp>
 #include <boost/ref.hpp>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <stdlib.h>
 
 #include <fstream>
 
@@ -59,7 +63,7 @@ intelConsumer::GetTypeId( void )
       .AddAttribute( "StartSeq", "Initial sequence number", IntegerValue( 0 ),
                     MakeIntegerAccessor( &intelConsumer::m_seq ), MakeIntegerChecker<int32_t>() )
       .AddAttribute( "Prefix", "Name of the Interest", StringValue( "/" ),
-                    MakeNameAccessor( &intelConsumer::m_interestName ), MakeNameChecker() )
+                    MakeNameAccessor( &intelConsumer::m_queryName ), MakeNameChecker() )
       .AddAttribute( "LifeTime", "LifeTime for subscription packet", StringValue( "5400s" ),
                     MakeTimeAccessor( &intelConsumer::m_interestLifeTime ), MakeTimeChecker() )
       .AddAttribute( "Frequency",
@@ -99,7 +103,11 @@ intelConsumer::GetTypeId( void )
 
       .AddTraceSource( "SentInterest", "SentInterest",
                       MakeTraceSourceAccessor( &intelConsumer::m_sentInterest ),
-                      "ns3::ndn::intelConsumer::SentInterestTraceCallback" );
+                      "ns3::ndn::intelConsumer::SentInterestTraceCallback" )
+      
+     .AddTraceSource("ServerChoice", "ServerChoice",
+                      MakeTraceSourceAccessor( &intelConsumer::m_serverChoice),
+                      "ns3::ndn::PECServer::ServerChoiceTraceCallback");
       ;
 
 	  return tid;
@@ -132,8 +140,8 @@ intelConsumer::ScheduleNextPacket()
 		m_firstTime = false;
 
 	} else if ( !m_sendEvent.IsRunning() ) {
-
-	//	m_sendEvent = Simulator::Schedule( m_txInterval, &intelConsumer::SendPacket, this );
+		//std::cout<<"should be scheduling with time " <<m_txInterval<<std::endl;
+		m_sendEvent = Simulator::Schedule( m_txInterval, &intelConsumer::SendPacket, this );
 
 	}
 }
@@ -201,7 +209,11 @@ intelConsumer::StartApplication()
 {
 	NS_LOG_FUNCTION_NOARGS();
 	App::StartApplication();
+        m_interestName = m_queryName;
+	m_interestName.append("service");
+	m_interestName.append(std::to_string(GetNode()->GetId()));
 	ScheduleNextPacket();
+	m_subscription = 1;
 }
 
 void
@@ -262,15 +274,20 @@ intelConsumer::SendPacket()
 
 	NS_LOG_INFO( "node( " << GetNode()->GetId() << " ) > sending Interest: " << interest->getName() /*m_interestName*/ << " with Payload = " << interest->getPayloadLength() << "bytes" );
 
+        if(interest->getName().getSubName(1,1).toUri()=="/service")
+		interest->setHopLimit(1);
+
+
 	WillSendOutInterest( seq );
 
 	m_transmittedInterests( interest, this, m_face );
+	//std::cout<<interest->getName() <<std::endl;
 	m_appLink->onReceiveInterest( *interest );
 
 	// Callback for sent payload interests
-	m_sentInterest( GetNode()->GetId(), interest );
-
-	ScheduleNextPacket();
+	if(m_subscription==1){
+   	   m_sentInterest( GetNode()->GetId(), interest );
+	}
 }
 
 
@@ -292,11 +309,67 @@ intelConsumer::OnData( shared_ptr<const Data> data )
 
 	// This could be a problem......
 	//uint32_t seq = data->getName().at( -1 ).toSequenceNumber();
+        
+	if(!chosen && data->getName().getSubName(1,1)=="service"){
+          std::vector<uint8_t> payloadVector( &data->getContent().value()[0], &data->getContent().value()[data->getContent().value_size()] );
+          std::string payload( payloadVector.begin(), payloadVector.end() );
 
-	NS_LOG_INFO( "node( " << GetNode()->GetId() << " ) < Received DATA for " << data->getName() << " TIME: " << Simulator::Now() );
+          std::vector<std::string> servers = SplitString(payload, ' ');
+          if(servers.size() > 1)
+	  {
+	     for(int i=0; i < servers.size(); i++)
+	     {
+	        std::vector<std::string> server = SplitString(servers[i], ',');	  
+                //std::cout<<servers[i]<<std::endl;
+                if(PECservers[server[0]] == 0)
+	           PECservers[server[0]] = std::stoi(server[1]);
+	     }
+	  }
+	  else 
+	  {
+	     //std::cout<<data->getName()<<std::endl;	  
+	     std::vector<std::string> server = SplitString(servers[0], ',');
+             PECservers[server[0]] = std::stoi(server[1]);	   
+  	  }
 
+          //for (auto i : PECservers) 
+	  //{
+             //if(lowestUtil>i.second){
+             //   lowestUtil=i.second;
+	     //   bestServer = i.first;
+	     //} 
+	  //}
+
+          Name payloadName = m_interestName.toUri()+payload;
+ 
+	  NS_LOG_INFO( "node( " << GetNode()->GetId() << " ) < Received DATA for " << data->getName() << " Content: " << payload << " Current Best:"<< bestServer << " " << lowestUtil << " TIME: " << Simulator::Now() );
+
+	  if (firstResponse){
+	     firstResponse = false;
+             Simulator::Schedule( Seconds(0.05), &intelConsumer::ChooseServer, this );           
+	  }
+
+	}
+	else if(data->getName().getSubName(1,1)=="compute")
+	{
+	//std::cout<<"new request\n";
+           firstResponse = true;
+           m_subscription = 1;
+           chosen = false;
+
+	   //clear query related attributes
+           PECservers.clear();
+	   bestServer = "";
+	   lowestUtil = 1000;
+           m_interestName = m_queryName;
+           m_interestName.append("service");
+	   m_interestName.append(std::to_string(GetNode()->GetId()));
+           ScheduleNextPacket();
+
+	   m_receivedData( GetNode()->GetId(), data );
+	}
 	// Callback for received subscription data
-	m_receivedData( GetNode()->GetId(), data );
+	//m_receivedData( GetNode()->GetId(), data );
 
 	int hopCount = 0;
 	auto hopCountTag = data->getTag<lp::HopCountTag>();
@@ -335,6 +408,46 @@ intelConsumer::OnData( shared_ptr<const Data> data )
 	//data = nullptr;
 	//data.reset();
 	//std::cout << "data received at APP in subscriber " << data->getName() << " count " << data.use_count() << std::endl;
+	
+	/*if(!chosen){
+    	   m_subscription = 0;
+           chosen = true;
+           //m_interestName = payloadName;
+	   //SendPacket();
+        }
+        else{ 
+     	   m_subscription = 1;
+	   //chosen = false;
+           //m_interestName = m_queryName;
+           //ScheduleNextPacket();
+	}*/
+
+
+}
+
+void
+intelConsumer::ChooseServer()
+{
+
+   for (auto i : PECservers)
+   {
+      //std::cout<<i.first<<","<<i.second<<" ";  
+      if(lowestUtil>i.second){
+         lowestUtil=i.second;
+         bestServer = i.first;
+      }
+   }
+   //std::cout<<"\nBest server: "<<bestServer<<", "<<lowestUtil<<"\n\n";
+
+   m_subscription = 0;
+   chosen = true;
+   m_interestName = m_queryName;
+   m_interestName.append("compute");
+   m_interestName.append(bestServer);
+   m_interestName.append(std::to_string(GetNode()->GetId()));
+   SendPacket();
+
+   m_serverChoice(GetNode()->GetId(), bestServer, lowestUtil);
 }
 
 void
@@ -347,7 +460,7 @@ intelConsumer::OnTimeout( uint32_t sequenceNumber )
 	m_rtt->IncreaseMultiplier(); // Double the next RTO
 	m_rtt->SentSeq( SequenceNumber32( sequenceNumber ), 1 ); // make sure to disable RTT calculation for this sample
 	m_retxSeqs.insert( sequenceNumber );
-	ScheduleNextPacket();
+	//ScheduleNextPacket();
 }
 
 void
@@ -363,6 +476,31 @@ intelConsumer::WillSendOutInterest( uint32_t sequenceNumber )
 	m_rtt->SentSeq( SequenceNumber32( sequenceNumber ), 1 );
 }
 
+
+std::vector<std::string>
+intelConsumer::SplitString( std::string strLine, char delimiter ) {
+
+        std::string str = strLine;
+        std::vector<std::string> result;
+        int i =0;
+        std::string buildStr = "";
+
+        for ( i = 0; i<str.size(); i++) {
+
+           if ( str[i]== delimiter ) {
+              result.push_back( buildStr );
+	      buildStr = "";
+	   } 
+	   else {
+              buildStr += str[i];    
+	   }
+        }
+        
+	if(buildStr!="")
+           result.push_back( buildStr );
+
+        return result;
+}
 
 } // namespace ndn
 } // namespace ns3

@@ -32,6 +32,7 @@
 
 #include "utils/ndn-ns3-packet-tag.hpp"
 #include "utils/ndn-rtt-mean-deviation.hpp"
+#include "helper/ndn-fib-helper.hpp"
 
 #include <ndn-cxx/lp/tags.hpp>
 
@@ -58,7 +59,9 @@ PECServer::GetTypeId( void )
 
       .AddAttribute( "StartSeq", "Initial sequence number", IntegerValue( 0 ),
                     MakeIntegerAccessor( &PECServer::m_seq ), MakeIntegerChecker<int32_t>() )
-      .AddAttribute( "Prefix", "Name of the Interest", StringValue( "/" ),
+      .AddAttribute( "Prefix", "Name of accepted interests", StringValue( "/" ),
+                    MakeNameAccessor( &PECServer::m_prefix ), MakeNameChecker() )
+      .AddAttribute( "UpdatePrefix", "Name to be used for Interest based updates to base station", StringValue( "/" ),
                     MakeNameAccessor( &PECServer::m_interestName ), MakeNameChecker() )
       .AddAttribute( "LifeTime", "LifeTime for subscription packet", StringValue( "5400s" ),
                     MakeTimeAccessor( &PECServer::m_interestLifeTime ), MakeTimeChecker() )
@@ -66,6 +69,11 @@ PECServer::GetTypeId( void )
                     "Timeout defining how frequently subscription should be reinforced",
 		    TimeValue( Seconds( 60 ) ),
                     MakeTimeAccessor( &PECServer::m_txInterval ), MakeTimeChecker() )
+
+      .AddAttribute("Freshness", "Freshness of data packets, if 0, then unlimited freshness",
+                    TimeValue(Seconds(0)), MakeTimeAccessor(&PECServer::m_freshness),
+                    MakeTimeChecker())
+
 
       .AddAttribute( "RetxTimer",
                     "Timeout defining how frequent retransmission timeouts should be checked",
@@ -83,6 +91,26 @@ PECServer::GetTypeId( void )
                     MakeUintegerAccessor( &PECServer::m_virtualPayloadSize ),
                     MakeUintegerChecker<uint32_t>() )
 
+      .AddAttribute( "Signature", "Fake signature, 0 valid signature (default), other values application-specific",
+	           UintegerValue(0), MakeUintegerAccessor(&PECServer::m_signature),
+	  	   MakeUintegerChecker<uint32_t>())
+
+      .AddAttribute("KeyLocator",
+                    "Name to be used for key locator.  If root, then key locator is not used",
+                    NameValue(), MakeNameAccessor(&PECServer::m_keyLocator), MakeNameChecker())
+
+      .AddAttribute( "UtilMin", "Minimum utilization value", IntegerValue( 20 ),
+                    MakeIntegerAccessor( &PECServer::m_uMin ), MakeIntegerChecker<int32_t>() )
+
+      .AddAttribute( "UtilRange", "Range of variance for base utilization value", IntegerValue( 20 ),
+                    MakeIntegerAccessor( &PECServer::m_uRange ), MakeIntegerChecker<int32_t>() )
+
+      .AddAttribute( "UtilRise", "The base amount by which utilzation is raised by a request.", IntegerValue( 15 ),
+                    MakeIntegerAccessor( &PECServer::m_uRaise ), MakeIntegerChecker<int32_t>() )
+
+      .AddAttribute( "UtilRiseRange", "The range by which amount by which utilzation is raised by a request will vary.", IntegerValue( 10 ),
+                    MakeIntegerAccessor( &PECServer::m_uRaiseRange ), MakeIntegerChecker<int32_t>() )
+
       .AddTraceSource( "LastRetransmittedInterestDataDelay",
                       "Delay between last retransmitted Interest and received Data",
                       MakeTraceSourceAccessor( &PECServer::m_lastRetransmittedInterestDataDelay ),
@@ -99,7 +127,19 @@ PECServer::GetTypeId( void )
 
       .AddTraceSource( "SentInterest", "SentInterest",
                       MakeTraceSourceAccessor( &PECServer::m_sentInterest ),
-                      "ns3::ndn::PECServer::SentInterestTraceCallback" );
+                      "ns3::ndn::PECServer::SentInterestTraceCallback" )
+      
+      .AddTraceSource("SentData", "SentData",
+                      MakeTraceSourceAccessor(&PECServer::m_sentData),
+                      "ns3::ndn::PECServer::SentDataTraceCallback")
+
+      .AddTraceSource("ReceivedInterest", "ReceivedInterest",
+                      MakeTraceSourceAccessor(&PECServer::m_receivedInterest),
+                      "ns3::ndn::PECServer::ReceivedInterestTraceCallback")
+
+      .AddTraceSource("ServerUpdate", "ServerUpdate",
+                      MakeTraceSourceAccessor(&PECServer::m_serverUpdate),
+                      "ns3::ndn::PECServer::ServerUpdateTraceCallback");
       ;
 
 	  return tid;
@@ -107,13 +147,17 @@ PECServer::GetTypeId( void )
 
 PECServer::PECServer()
     : m_rand( CreateObject<UniformRandomVariable>() )
+    , m_comTime( CreateObject<NormalRandomVariable> ())
     , m_seq( 0 )
     , m_seqMax( std::numeric_limits<uint32_t>::max() ) // set to max value on uint32
     , m_firstTime ( true )
     , m_doRetransmission( 1 )
 {
-	NS_LOG_FUNCTION_NOARGS();
-	m_rtt = CreateObject<RttMeanDeviation>();
+   NS_LOG_FUNCTION_NOARGS();
+   m_rtt = CreateObject<RttMeanDeviation>();
+   m_comTime->SetAttribute ("Mean", DoubleValue (1.0669998));
+   m_comTime->SetAttribute ("Variance", DoubleValue (0.02718056));
+
 }
 
 
@@ -125,7 +169,7 @@ PECServer::~PECServer()
 void
 PECServer::ScheduleNextPacket()
 {
-	if ( m_firstTime ) {
+	/*if ( m_firstTime ) {
 
 		m_sendEvent = Simulator::Schedule( Seconds( double( m_offset ) ), &PECServer::SendPacket, this );
 		m_firstTime = false;
@@ -134,7 +178,7 @@ PECServer::ScheduleNextPacket()
 
 		m_sendEvent = Simulator::Schedule( m_txInterval, &PECServer::SendPacket, this );
 
-	}
+	}*/
 }
 
 
@@ -200,6 +244,19 @@ PECServer::StartApplication()
 {
 	NS_LOG_FUNCTION_NOARGS();
 	App::StartApplication();
+        //std::cout<<m_prefix<<std::endl;
+        m_prefixWithoutSequence = m_prefix;
+	Name servicePrefix = m_prefix.getSubName(0,1);
+	servicePrefix.append("service");
+        Name basePrefix = m_prefix.getSubName(0,1);
+	basePrefix.append("baseQuery");
+	Name computePrefix = m_prefix.getSubName(0,1);
+	computePrefix.append("compute");
+	computePrefix.append(m_prefix.getSubName(1,1).toUri());
+        FibHelper::AddRoute(GetNode(), servicePrefix, m_face, 0);
+        FibHelper::AddRoute(GetNode(), basePrefix , m_face, 0);
+	FibHelper::AddRoute(GetNode(), computePrefix, m_face, 0);
+        m_utilization = rand()%m_uRange+m_uMin;
 	ScheduleNextPacket();
 }
 
@@ -243,8 +300,9 @@ PECServer::SendPacket()
 
 	seq = m_seq++;
        	//uint8_t payload[1] = {1};
-        std::string payload = "add";
 
+        std::string payload = m_interestName.getSubName(2,1).toUri();;
+        payload +=  ","+std::to_string(int(m_utilization));
 	shared_ptr<Name> nameWithSequence = make_shared<Name>( m_interestName );
 
 	shared_ptr<Interest> interest = make_shared<Interest>();
@@ -254,7 +312,8 @@ PECServer::SendPacket()
 
 	if ( m_available == 0 ) {
 		m_available = 1;
-                payload = "remove";
+		//Add back
+                //payload = "remove";
 	}
         else 
 		m_available = 0;
@@ -267,6 +326,7 @@ PECServer::SendPacket()
 	interest->setName( *nameWithSequence );
 	time::milliseconds interestLifeTime( m_interestLifeTime.GetMilliSeconds() );
 	interest->setInterestLifetime( interestLifeTime );
+	interest->setHopLimit(2);
 
 	NS_LOG_INFO( "node( " << GetNode()->GetId() << " ) > sending Interest: " << interest->getName() /*m_interestName*/ << " with Payload = " << interest->getPayloadLength() << "bytes" );
 
@@ -277,8 +337,8 @@ PECServer::SendPacket()
 
 	// Callback for sent payload interests
 	m_sentInterest( GetNode()->GetId(), interest );
-
-	ScheduleNextPacket();
+        //std::cout<<interest->getName()<<" "<<Simulator::Now().GetSeconds()<<std::endl;
+	//ScheduleNextPacket();
 }
 
 
@@ -353,8 +413,133 @@ PECServer::OnTimeout( uint32_t sequenceNumber )
 	m_rtt->IncreaseMultiplier(); // Double the next RTO
 	m_rtt->SentSeq( SequenceNumber32( sequenceNumber ), 1 ); // make sure to disable RTT calculation for this sample
 	m_retxSeqs.insert( sequenceNumber );
-	ScheduleNextPacket();
+	//ScheduleNextPacket();
 }
+
+void
+PECServer::OnInterest(shared_ptr<const Interest> interest)
+{
+    App::OnInterest(interest); // tracing inside
+
+    NS_LOG_FUNCTION(this << interest);
+
+    // Callback for received interests
+    m_receivedInterest(GetNode()->GetId(), interest);
+     //std::cout<<"gitem "<<interest->getName()<<std::endl;
+    if (interest->getName().getSubName(1,1) == "/compute"){
+       Name dName = interest->getName().toUri();
+       ScheduleComputeTime(dName);
+       return; 
+    }
+    else if(interest->getName().getSubName(1,1) == "/baseQuery"){
+	SendPacket();
+    }
+    if (!m_active)
+        return;
+
+    auto data = make_shared<Data>();
+    data->setName(interest->getName());
+    data->setFreshnessPeriod(::ndn::time::milliseconds(m_freshness.GetMilliSeconds()));
+
+    std::string serverInfo = m_interestName.getSubName(2,1).toUri();
+    serverInfo += ","+std::to_string(int(m_utilization));
+
+    std::vector<uint8_t> myVector( serverInfo.begin(), serverInfo.end() );  
+    uint8_t *p = &myVector[0];
+    data->setContent( p, myVector.size()); // Add payload to interest
+
+    Signature signature;
+    SignatureInfo signatureInfo(static_cast< ::ndn::tlv::SignatureTypeValue>(255));
+
+    if (m_keyLocator.size() > 0) {
+        signatureInfo.setKeyLocator(m_keyLocator);
+    }
+
+    signature.setInfo(signatureInfo);
+    signature.setValue(::ndn::makeNonNegativeIntegerBlock(::ndn::tlv::SignatureValue, m_signature));
+
+    data->setSignature(signature);
+
+    NS_LOG_INFO("node(" << GetNode()->GetId() << ") sending DATA for " << data->getName() << " TIME: " << Simulator::Now());
+
+    // to create real wire encoding
+    data->wireEncode();
+
+    m_transmittedDatas(data, this, m_face);
+    m_appLink->onReceiveData(*data);
+
+    // Callback for tranmitted subscription data
+    m_sentData(GetNode()->GetId(), data);
+
+}
+
+void
+PECServer::ScheduleComputeTime(const Name &dataName){
+  //get sompute time
+  double BCT = std::max((double)0, m_comTime->GetValue());
+  double computeTime = BCT * (1.0+m_utilization/100);
+  //std::cout<<"Base time: "<<BCT<<" Real time: "<<computeTime<<std::endl;
+  double util = rand()%m_uRaiseRange+(m_uRaise-m_uRaiseRange/2);
+  //check if there is enough utilization for request
+  if( (m_utilization + util) > 100.0){
+     pendingRequests.push_back(dataName);
+     //std::cout<<m_interestName.getSubName(2,1).toUri()<<" ..waiting "<<m_utilization<<" "<<Simulator::Now().GetSeconds()<<"\n";
+     return;
+  }
+  m_utilization += util;
+  std::string server = m_interestName.getSubName(2,1).toUri();
+  m_serverUpdate(GetNode()->GetId(), server, m_utilization);
+
+  Simulator::Schedule(Seconds(computeTime), &PECServer::SendData, this, dataName, util);
+}
+
+
+void
+PECServer::SendData(const Name &dataName, double util)
+{
+    if (!m_active)
+        return;
+
+    m_utilization -= util;
+    if(!pendingRequests.empty()){
+       ScheduleComputeTime( pendingRequests.front());
+       pendingRequests.erase(pendingRequests.begin());     
+    }
+
+    auto data = make_shared<Data>();
+    data->setName(dataName);
+    data->setFreshnessPeriod(::ndn::time::milliseconds(m_freshness.GetMilliSeconds()));
+
+    data->setContent( make_shared< ::ndn::Buffer>(1024)); // Add payload to interest
+
+    Signature signature;
+    SignatureInfo signatureInfo(static_cast< ::ndn::tlv::SignatureTypeValue>(255));
+
+    if (m_keyLocator.size() > 0) {
+        signatureInfo.setKeyLocator(m_keyLocator);
+    }
+
+    signature.setInfo(signatureInfo);
+    signature.setValue(::ndn::makeNonNegativeIntegerBlock(::ndn::tlv::SignatureValue, m_signature));
+
+    data->setSignature(signature);
+
+    NS_LOG_INFO("node(" << GetNode()->GetId() << ") sending DATA for " << data->getName() << " TIME: " << Simulator::Now());
+
+    // to create real wire encoding
+    data->wireEncode();
+
+    m_transmittedDatas(data, this, m_face);
+    m_appLink->onReceiveData(*data);
+
+    // Callback for tranmitted subscription data
+    m_sentData(GetNode()->GetId(), data);
+
+    std::string server = m_interestName.getSubName(2,1).toUri();
+    m_serverUpdate(GetNode()->GetId(), server, m_utilization);
+
+}
+
 
 void
 PECServer::WillSendOutInterest( uint32_t sequenceNumber )

@@ -66,6 +66,8 @@ main(int argc, char* argv[])
   PointToPointHelper p2p;
   p2p.Install(nodes.Get(0), nodes.Get(1));
   p2p.Install(nodes.Get(1), nodes.Get(2));
+  p2p.Install(nodes.Get(1), nodes.Get(2));
+
 
   // Install NDN stack on all nodes
   ndn::StackHelper ndnHelper;
@@ -78,7 +80,7 @@ main(int argc, char* argv[])
   // Installing applications
 
   // Consumer
-  ndn::AppHelper consumerHelper("ns3::ndn::ConsumerCbr");
+  ndn::AppHelper consumerHelper("ns3::ndn::IntelConsumer");
   // Consumer will request /prefix/0, /prefix/1, ...
   consumerHelper.SetPrefix("/prefix");
   consumerHelper.SetAttribute("Frequency", StringValue("10")); // 10 interests a second

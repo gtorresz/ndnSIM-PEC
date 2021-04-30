@@ -102,6 +102,7 @@ public:
 
   typedef void (*SentInterestTraceCallback)( uint32_t, shared_ptr<const Interest> );
   typedef void (*ReceivedDataTraceCallback)( uint32_t, shared_ptr<const Data> );
+  typedef void (*ServerChoiceTraceCallback)( uint32_t, std::string, int );
 
 protected:
 
@@ -139,6 +140,14 @@ protected:
   Time
   GetRetxTimer() const;
 
+
+  std::vector<std::string>
+  SplitString( std::string strLine, char delimiter );
+
+
+  void
+  ChooseServer();
+
 protected:
 
   Ptr<UniformRandomVariable> m_rand; ///< @brief nonce generator
@@ -148,15 +157,21 @@ protected:
   Time m_retxTimer;    ///< @brief Currently estimated retransmission timer
   EventId m_retxEvent; ///< @brief Event to check whether or not retransmission should be performed
 
+  bool chosen = false;
+
   Time m_txInterval;
   Name m_interestName;     ///< \brief NDN Name of the Interest (use Name)
+  Name m_queryName;
   Time m_interestLifeTime; ///< \brief LifeTime for interest packet
   bool m_firstTime;
   uint32_t m_subscription; //subscription value set by the application
   uint32_t m_virtualPayloadSize; //payload size for interest packet
   uint32_t m_doRetransmission; //retransmit lost interest packets if set to 1
   uint32_t m_offset; //random offset
-
+  std::string bestServer;
+  int lowestUtil = 1000;
+  std::unordered_map<std::string, int> PECservers;
+  bool firstResponse = true;
   Ptr<RttEstimator> m_rtt; ///< @brief RTT estimator
 
   /// @cond include_hidden
@@ -227,6 +242,7 @@ protected:
 
   TracedCallback < uint32_t, shared_ptr<const Interest> > m_sentInterest;
   TracedCallback < uint32_t, shared_ptr<const Data> > m_receivedData;
+  TracedCallback < uint32_t, std::string, int > m_serverChoice;
 
 };
 

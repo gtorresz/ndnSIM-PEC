@@ -66,6 +66,10 @@ public:
   PECServer();
   virtual ~PECServer();
 
+  // inherited from NdnApp
+  virtual void
+  OnInterest(shared_ptr<const Interest> interest);
+
   // From App
   virtual void
   OnData(shared_ptr<const Data> contentObject);
@@ -102,6 +106,11 @@ public:
 
   typedef void (*SentInterestTraceCallback)( uint32_t, shared_ptr<const Interest> );
   typedef void (*ReceivedDataTraceCallback)( uint32_t, shared_ptr<const Data> );
+  typedef void (*ReceivedInterestTraceCallback)( uint32_t, shared_ptr<const Interest> );
+  typedef void (*SentDataTraceCallback)( uint32_t, shared_ptr<const Data> );
+  typedef void (*SeverUpdateTraceCallback)( uint32_t, std::string, int );
+
+
 
 protected:
 
@@ -139,9 +148,19 @@ protected:
   Time
   GetRetxTimer() const;
 
+  void
+  ScheduleComputeTime(const Name &dataName);
+
+  /**
+  * @brief Send computation data.
+  */
+  void
+  SendData(const Name &dataName, double util);
+
 protected:
 
   Ptr<UniformRandomVariable> m_rand; ///< @brief nonce generator
+  Ptr<NormalRandomVariable> m_comTime;
   uint32_t m_seq;      ///< @brief currently requested sequence number
   uint32_t m_seqMax;   ///< @brief maximum number of sequence number
   EventId m_sendEvent; ///< @brief EventId of pending "send packet" event
@@ -149,6 +168,8 @@ protected:
   EventId m_retxEvent; ///< @brief Event to check whether or not retransmission should be performed
 
   Time m_txInterval;
+  Name m_prefixWithoutSequence;
+  Name m_prefix;
   Name m_interestName;     ///< \brief NDN Name of the Interest (use Name)
   Time m_interestLifeTime; ///< \brief LifeTime for interest packet
   bool m_firstTime;
@@ -156,6 +177,15 @@ protected:
   uint32_t m_virtualPayloadSize; //payload size for interest packet
   uint32_t m_doRetransmission; //retransmit lost interest packets if set to 1
   uint32_t m_offset; //random offset
+  Time m_freshness;
+  uint32_t m_signature;
+  Name m_keyLocator;
+  double m_utilization;
+  int m_uMin;
+  int m_uRange;
+  int m_uRaise;
+  int m_uRaiseRange;
+  std::vector<Name> pendingRequests;
 
   Ptr<RttEstimator> m_rtt; ///< @brief RTT estimator
 
@@ -227,6 +257,10 @@ protected:
 
   TracedCallback < uint32_t, shared_ptr<const Interest> > m_sentInterest;
   TracedCallback < uint32_t, shared_ptr<const Data> > m_receivedData;
+  TracedCallback <  uint32_t, shared_ptr<const Interest> > m_receivedInterest;
+  TracedCallback <  uint32_t, shared_ptr<const Data> > m_sentData;
+  TracedCallback < uint32_t, std::string, int > m_serverUpdate;
+
 
 };
 
