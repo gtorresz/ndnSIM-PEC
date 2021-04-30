@@ -356,7 +356,7 @@ BaseStation::OnTimeout( uint32_t sequenceNumber )
 void
 BaseStation::SendGathered()
 {
-   std::cout<<"Sending out data "<<Simulator::Now().GetSeconds()<<std::endl;
+   //std::cout<<"Sending out data "<<Simulator::Now().GetSeconds()<<std::endl;
    while (!pending.empty()){
       Name temp = pending.back();
       pending.pop_back();
