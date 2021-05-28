@@ -87,6 +87,10 @@ public:
   void
   SendPacket();
 
+  void
+  SendInputRequest(Name clientName, int packetsLeft);
+
+
    /**
    * @brief An event that is fired just before an Interest packet is actually send out (send is
    *inevitable)
@@ -134,6 +138,9 @@ protected:
   void
   CheckRetxTimeout();
 
+  void
+  SwitchStatus();
+
   /**
    * \brief Modifies the frequency of checking the retransmission timeouts
    * \param retxTimer Timeout defining how frequent retransmission timeouts should be checked
@@ -168,6 +175,7 @@ protected:
   EventId m_retxEvent; ///< @brief Event to check whether or not retransmission should be performed
 
   Time m_txInterval;
+  Time m_changeInterval;
   Name m_prefixWithoutSequence;
   Name m_prefix;
   Name m_interestName;     ///< \brief NDN Name of the Interest (use Name)
@@ -179,13 +187,19 @@ protected:
   uint32_t m_offset; //random offset
   Time m_freshness;
   uint32_t m_signature;
+  uint32_t m_inServer;
   Name m_keyLocator;
   double m_utilization;
   int m_uMin;
   int m_uRange;
   int m_uRaise;
   int m_uRaiseRange;
+  std::string m_services;
   std::vector<Name> pendingRequests;
+  std::unordered_map<std::string, double> pendingUtil;
+  std::unordered_map<Name, int> pendingInput;
+  std::unordered_map<Name, Name> inputMap;
+  bool accepting = true;
 
   Ptr<RttEstimator> m_rtt; ///< @brief RTT estimator
 
@@ -260,6 +274,32 @@ protected:
   TracedCallback <  uint32_t, shared_ptr<const Interest> > m_receivedInterest;
   TracedCallback <  uint32_t, shared_ptr<const Data> > m_sentData;
   TracedCallback < uint32_t, std::string, int > m_serverUpdate;
+
+
+  std::vector<std::string>
+  SplitString( std::string strLine, char delimiter ) {
+
+        std::string str = strLine;
+        std::vector<std::string> result;
+        uint32_t i =0;
+        std::string buildStr = "";
+
+        for ( i = 0; i<str.size(); i++) {
+
+           if ( str[i]== delimiter ) {
+              result.push_back( buildStr );
+              buildStr = "";
+           }
+           else {
+              buildStr += str[i];
+           }
+        }
+
+        if(buildStr!="")
+           result.push_back( buildStr );
+
+        return result;
+}
 
 
 };

@@ -101,8 +101,8 @@ public:
   //typedef void (*FirstInterestDataDelayCallback)(Ptr<App> app, uint32_t seqno, Time delay, uint32_t retxCount, int32_t hopCount);
 
   typedef void (*SentInterestTraceCallback)( uint32_t, shared_ptr<const Interest> );
-  typedef void (*ReceivedDataTraceCallback)( uint32_t, shared_ptr<const Data> );
-  typedef void (*ServerChoiceTraceCallback)( uint32_t, std::string, int );
+  typedef void (*ReceivedDataTraceCallback)( uint32_t, shared_ptr<const Data>, int );
+  typedef void (*ServerChoiceTraceCallback)( uint32_t, std::string, int, std::string );
 
 protected:
 
@@ -160,6 +160,8 @@ protected:
   bool chosen = false;
 
   Time m_txInterval;
+  Time m_longInterval;
+  Time m_dataInterval;
   Name m_interestName;     ///< \brief NDN Name of the Interest (use Name)
   Name m_queryName;
   Time m_interestLifeTime; ///< \brief LifeTime for interest packet
@@ -169,10 +171,15 @@ protected:
   uint32_t m_doRetransmission; //retransmit lost interest packets if set to 1
   uint32_t m_offset; //random offset
   std::string bestServer;
+  std::string m_service;
+  std::string m_nodeId;
+
+  int m_dataReq;
   int lowestUtil = 1000;
   std::unordered_map<std::string, int> PECservers;
   bool firstResponse = true;
   Ptr<RttEstimator> m_rtt; ///< @brief RTT estimator
+  int m_intSent =0;
 
   /// @cond include_hidden
   /**
@@ -241,8 +248,8 @@ protected:
                  uint32_t /*retx count*/, int32_t /*hop count*/> m_firstInterestDataDelay;
 
   TracedCallback < uint32_t, shared_ptr<const Interest> > m_sentInterest;
-  TracedCallback < uint32_t, shared_ptr<const Data> > m_receivedData;
-  TracedCallback < uint32_t, std::string, int > m_serverChoice;
+  TracedCallback < uint32_t, shared_ptr<const Data>, int > m_receivedData;
+  TracedCallback < uint32_t, std::string, int, std::string > m_serverChoice;
 
 };
 

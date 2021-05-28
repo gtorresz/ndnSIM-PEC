@@ -55,14 +55,14 @@ BaseStation::GetTypeId(void)
                     MakeNameAccessor(&BaseStation::m_prefix), MakeNameChecker())
       .AddAttribute( "UpdatePrefix", "Name to be used for BaseStation querys to nerby servers", StringValue( "/" ),
                     MakeNameAccessor( &BaseStation::m_interestName ), MakeNameChecker() )
-      .AddAttribute( "HopLimit", "Name to be used for BaseStation querys to nerby servers", UintegerValue(2),
+      .AddAttribute( "HopLimit", "Name to be used for BaseStation querys to nerby servers", UintegerValue(1),
                     MakeUintegerAccessor( &BaseStation::m_hoplimit ), MakeUintegerChecker<uint32_t>() )
       .AddAttribute("Postfix", "Postfix that is added to the output data (e.g., for adding producer-uniqueness)",
          	    StringValue("/"), MakeNameAccessor(&BaseStation::m_postfix), MakeNameChecker())
       .AddAttribute("PayloadSize", "Virtual payload size for Content packets", UintegerValue(1024),
                     MakeUintegerAccessor(&BaseStation::m_virtualPayloadSize),
                     MakeUintegerChecker<uint32_t>())
-      .AddAttribute("Freshness", "Freshness of data packets, if 0, then unlimited freshness",
+      .AddAttribute("DataFreshness", "Freshness of data packets, if 0, then unlimited freshness",
                     TimeValue(Seconds(0)), MakeTimeAccessor(&BaseStation::m_freshness),
                     MakeTimeChecker())
       .AddAttribute("Frequency", "Frequency of data packets, if 0, then no spontaneous publish",
@@ -71,14 +71,25 @@ BaseStation::GetTypeId(void)
       .AddAttribute( "LifeTime", "LifeTime for subscription packet", StringValue( "5400s" ),
                     MakeTimeAccessor( &BaseStation::m_interestLifeTime ), MakeTimeChecker() )
 
-
       .AddAttribute( "Proactive", "Proactive 0-false, all  else true", IntegerValue( 1 ),
                     MakeIntegerAccessor( &BaseStation::m_proactive ), MakeIntegerChecker<int32_t>() )
+
       .AddAttribute("Signature","Fake signature, 0 valid signature (default), other values application-specific",
          UintegerValue(0), MakeUintegerAccessor(&BaseStation::m_signature),
          MakeUintegerChecker<uint32_t>())
+
       .AddAttribute("KeyLocator", "Name to be used for key locator.  If root, then key locator is not used",
                     NameValue(), MakeNameAccessor(&BaseStation::m_keyLocator), MakeNameChecker())
+
+      .AddAttribute("QueryFreshness", "Freshness of query results",
+                    TimeValue(Seconds(0.1)), MakeTimeAccessor(&BaseStation::m_qFresh),
+                    MakeTimeChecker())
+
+
+      .AddTraceSource( "SentInterest", "SentInterest",
+                      MakeTraceSourceAccessor( &BaseStation::m_sentInterest ),
+                      "ns3::ndn::BaseStationConsumer::SentInterestTraceCallback" )
+
 
       .AddTraceSource("SentData", "SentData",
                       MakeTraceSourceAccessor(&BaseStation::m_sentData),
@@ -137,6 +148,7 @@ BaseStation::ScheduleNextPacket()
 		} else if ( !m_sendEvent.IsRunning() ) {
 	
 			m_sendEvent = Simulator::Schedule( m_frequency, &BaseStation::SendPacket, this );
+                        Simulator::Schedule( m_frequency, &BaseStation::SendToInServers, this );
 
 		}
 	}
@@ -208,7 +220,7 @@ BaseStation::SendPacket()
 	if ( !m_active ) {
 		return;
 	}
-
+        newServers.clear();
 	NS_LOG_FUNCTION_NOARGS();
 
 	uint32_t seq = std::numeric_limits<uint32_t>::max();
@@ -254,6 +266,56 @@ BaseStation::SendPacket()
 	ScheduleNextPacket();
 }
 
+void
+BaseStation::SendToInServers()
+{
+  for(int i; i<inServers.size();i++){
+        // Set default size for payload interets
+        if ( !m_active ) {
+                return;
+        }
+
+        NS_LOG_FUNCTION_NOARGS();
+
+        uint32_t seq = std::numeric_limits<uint32_t>::max();
+
+        while ( m_retxSeqs.size() ) {
+
+                seq = *m_retxSeqs.begin();
+                m_retxSeqs.erase( m_retxSeqs.begin() );
+                break;
+        }
+
+        seq = m_seq++;
+
+        shared_ptr<Interest> interest = make_shared<Interest>();
+        interest->setNonce( m_rand->GetValue( 0, std::numeric_limits<uint32_t>::max() ) );
+        interest->setSubscription( 0 );
+        shared_ptr<Name> nameWithSequence = make_shared<Name>(m_interestName.getSubName(0,1));
+        nameWithSequence->append("service");
+        std::string temp = inServers[i].toUri();
+	nameWithSequence->append("server" + temp.substr(1));
+        nameWithSequence->append(m_interestName.getSubName(2,1));
+
+        nameWithSequence->appendSequenceNumber( seq );
+        
+        
+        interest->setName( *nameWithSequence );
+        //std::cout<<interest->getName()<<std::endl;
+        time::milliseconds interestLifeTime( m_interestLifeTime.GetMilliSeconds() );
+        interest->setInterestLifetime( interestLifeTime );
+        WillSendOutInterest( seq );
+
+        m_transmittedInterests( interest, this, m_face );
+        m_appLink->onReceiveInterest( *interest );
+
+        // Callback for sent payload interests
+        m_sentInterest( GetNode()->GetId(), interest );
+
+  }
+}
+
+
 
 ///////////////////////////////////////////////////
 //          Process incoming packets             //
@@ -268,14 +330,22 @@ BaseStation::OnData( shared_ptr<const Data> data )
 	}
        
 	App::OnData( data ); // tracing inside
-        return;
-	NS_LOG_FUNCTION( this << data );	
+
+        NS_LOG_FUNCTION( this << data );	
 	std::vector<uint8_t> payloadVector( &data->getContent().value()[0], &data->getContent().value()[data->getContent().value_size()] );
         std::string payload( payloadVector.begin(), payloadVector.end() );
+         
+       if(data->getName().getSubName(1,1).toUri()== "/baseQuery"){
+          return;
+        }
+        if (newServers.empty()){
+           Simulator::Schedule( Seconds( double( 0.005 ) ), &BaseStation::SendGathered, this );
+         }
 	
+        //std::cout<<"Datata "<<data->getName()<<" "<<payload<<"hmm"<<std::endl;
 
 	std::vector<std::string> server = SplitString(payload, ',');
-	servers[server[0]] = std::stoi(server[1]);
+	newServers[server[0]] = std::stoi(server[1]);
 	
 	// This could be a problem......
 	//uint32_t seq = data->getName().at( -1 ).toSequenceNumber();
@@ -357,12 +427,24 @@ void
 BaseStation::SendGathered()
 {
    //std::cout<<"Sending out data "<<Simulator::Now().GetSeconds()<<std::endl;
+   //std::cout<<newServers.size()<<" "<<inServers.size()<<std::endl;
+   if(newServers.size()>=inServers.size()){
+      servers.clear();
+      for(auto iter = newServers.begin(); iter != newServers.end(); ++iter){
+          servers[iter->first]=iter->second;
+      }
+      Simulator::Schedule( Seconds( double( 0.005 ) ), &BaseStation::SendGathered, this );
+   }
+   else Simulator::Schedule( Seconds( double( 0.001 ) ), &BaseStation::SendGathered, this );
    while (!pending.empty()){
       Name temp = pending.back();
       pending.pop_back();
       SendData(temp, true);
+      isFresh = true;
+      Simulator::Schedule( m_qFresh, &BaseStation::updateFreshness, this );
    }
 }
+
 
 
 void
@@ -379,7 +461,6 @@ BaseStation::OnInterest(shared_ptr<const Interest> interest)
     if (!m_active)
         return;
 
-    std::string server = interest->getName().getSubName(2,1).toUri();
     //Send data if there's a subscription
     m_subscription = interest->getSubscription();
     m_receivedpayload = interest->getPayloadLength();
@@ -390,10 +471,11 @@ BaseStation::OnInterest(shared_ptr<const Interest> interest)
     //std::cout<<interest->getName()<<Simulator::Now().GetSeconds()<<std::endl;
     bool sendPayload = false;
     if(interest->getName().getSubName(1,1).toUri() == "/service"){
-	if(!m_proactive) {
+	if(!m_proactive and !isFresh) {
             if(pending.empty()){
 	     	Simulator::Schedule( Seconds( double( 0.035 ) ), &BaseStation::SendGathered, this );
                 SendPacket();
+		SendToInServers();
             }
             pending.push_back(interest->getName());
             return;
@@ -405,17 +487,26 @@ BaseStation::OnInterest(shared_ptr<const Interest> interest)
     
     //else if(payload == "remove") 
 	    //servers.erase(server);
-    else if (interest->getName().getSubName(1,1).toUri() != "/update")
-	  return;
-    
+    else if (interest->getName().getSubName(1,1).toUri() == "/update"){
+     if ( newServers.empty())
+           Simulator::Schedule( Seconds( double( 0.005 ) ), &BaseStation::SendGathered, this );    
+ 
     for(auto iter = servers.begin(); iter != servers.end(); ++iter){
       //  std::cout << (*iter) << ", " ;
     }
-    //std::cout<<std::endl;
-    servers[server] = payload;
+    std::string server = interest->getName().getSubName(2,1).toUri();
+    std::string temp = interest->getName().getSubName(3,1).toUri();
+    server+= temp.substr(1);
+    //std::cout<<server<<" "<<interest->getName()<<std::endl;
+    newServers[server] = payload;
+    }
+    else return;
     //Normal interest, without a subscription
     if (m_subscription == 0) {
         SendData(interest->getName(), sendPayload);
+    }
+    if(interest->getName().getSubName(2,1).toUri() == "/server"){
+      inServers.push_back(interest->getName().getSubName(3,1)); 
     }
 }
 
@@ -467,7 +558,7 @@ BaseStation::SendData(const Name &dataName, bool payload)
        serverList += iter.second + " ";
     }
 
-    //std::cout << "printing server list\n"<<serverList<<std::endl;
+    //std::cout << "printing server list\n"<<serverList<<" "<< Simulator::Now().GetSeconds()<<" "<< GetNode()->GetId()<<std::endl;
     if(payload){
        std::vector<uint8_t> myVector( serverList.begin(), serverList.end() );
        uint8_t *p = &myVector[0];

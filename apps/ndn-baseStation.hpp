@@ -77,6 +77,10 @@ public:
   void
   SendGathered();
 
+  void
+  updateFreshness(){
+     isFresh = false;
+  };
 
   void
   ScheduleNextPacket();
@@ -92,6 +96,9 @@ public:
 
   void
   SendPacket();
+
+  void
+  SendToInServers();
 
   void
   CheckRetxTimeout();
@@ -143,6 +150,7 @@ private:
   Name m_postfix;
   uint32_t m_virtualPayloadSize;
   Time m_freshness;
+  Time m_qFresh;
   Time m_frequency;
   EventId m_txEvent;
   bool m_firstTime;
@@ -150,7 +158,9 @@ private:
   Name m_prefixWithoutSequence;
   size_t m_receivedpayload;
   size_t m_subDataSize; //Size of subscription data, in Kbytes
-  std::unordered_map<std::string, std::string> servers;  
+  std::unordered_map<std::string, std::string> servers;
+  std::unordered_map<std::string, std::string> newServers; 
+  std::vector<Name> inServers; 
   uint32_t m_proactive;
   Name m_keyLocator;
   uint32_t m_signature;
@@ -160,6 +170,8 @@ private:
   Time m_interestLifeTime;
   Ptr<RttEstimator> m_rtt; ///< @brief RTT estimator
   std::vector<Name> pending;
+
+  bool isFresh = false;
 
 protected:
   TracedCallback < uint32_t, shared_ptr<const Interest> > m_sentInterest;

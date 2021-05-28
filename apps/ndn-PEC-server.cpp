@@ -105,11 +105,21 @@ PECServer::GetTypeId( void )
       .AddAttribute( "UtilRange", "Range of variance for base utilization value", IntegerValue( 20 ),
                     MakeIntegerAccessor( &PECServer::m_uRange ), MakeIntegerChecker<int32_t>() )
 
-      .AddAttribute( "UtilRise", "The base amount by which utilzation is raised by a request.", IntegerValue( 15 ),
+      .AddAttribute( "UtilRise", "The base amount by which utilzation is raised by a request.", IntegerValue( 25 ),
                     MakeIntegerAccessor( &PECServer::m_uRaise ), MakeIntegerChecker<int32_t>() )
 
-      .AddAttribute( "UtilRiseRange", "The range by which amount by which utilzation is raised by a request will vary.", IntegerValue( 10 ),
+      .AddAttribute( "UtilRiseRange", "The range by which amount by which utilzation is raised by a request will vary.", IntegerValue( 0 ),
                     MakeIntegerAccessor( &PECServer::m_uRaiseRange ), MakeIntegerChecker<int32_t>() )
+
+      .AddAttribute( "Services", "The services offered seperated by a space.", StringValue( "1" ),
+                    MakeStringAccessor( &PECServer::m_services ), MakeStringChecker() )
+
+      .AddAttribute( "InServer", "Is this server infratsructure.", IntegerValue( 1 ),
+                    MakeIntegerAccessor( &PECServer::m_inServer ), MakeIntegerChecker<int32_t>() )
+
+      .AddAttribute( "StatChangeFreq", "If PEC how often status may change.", TimeValue( Seconds( 5 ) ),
+                    MakeTimeAccessor( &PECServer::m_changeInterval ), MakeTimeChecker() )
+
 
       .AddTraceSource( "LastRetransmittedInterestDataDelay",
                       "Delay between last retransmitted Interest and received Data",
@@ -153,6 +163,7 @@ PECServer::PECServer()
     , m_firstTime ( true )
     , m_doRetransmission( 1 )
 {
+   
    NS_LOG_FUNCTION_NOARGS();
    m_rtt = CreateObject<RttMeanDeviation>();
    m_comTime->SetAttribute ("Mean", DoubleValue (1.0669998));
@@ -169,12 +180,12 @@ PECServer::~PECServer()
 void
 PECServer::ScheduleNextPacket()
 {
-	/*if ( m_firstTime ) {
+	if ( m_firstTime && m_inServer ) {
 
-		m_sendEvent = Simulator::Schedule( Seconds( double( m_offset ) ), &PECServer::SendPacket, this );
+		m_sendEvent = Simulator::Schedule( Seconds( double( 0.001 ) ), &PECServer::SendPacket, this );
 		m_firstTime = false;
 
-	} else if ( !m_sendEvent.IsRunning() ) {
+	}/* else if ( !m_sendEvent.IsRunning() ) {
 
 		m_sendEvent = Simulator::Schedule( m_txInterval, &PECServer::SendPacket, this );
 
@@ -257,6 +268,11 @@ PECServer::StartApplication()
         FibHelper::AddRoute(GetNode(), basePrefix , m_face, 0);
 	FibHelper::AddRoute(GetNode(), computePrefix, m_face, 0);
         m_utilization = rand()%m_uRange+m_uMin;
+
+        std::string server = m_interestName.getSubName(2,1).toUri();
+        m_serverUpdate(GetNode()->GetId(), server, m_utilization);
+
+        if(!m_inServer)Simulator::Schedule( m_changeInterval, &PECServer::SwitchStatus, this );
 	ScheduleNextPacket();
 }
 
@@ -269,8 +285,19 @@ PECServer::StopApplication() // Called at time specified by Stop
 }
 
 void
+PECServer::SwitchStatus() {
+   int change = rand()%10000;
+   if(change >= 6500)
+      accepting = !accepting;
+   if(!m_inServer)Simulator::Schedule( m_changeInterval, &PECServer::SwitchStatus, this );
+}
+
+void
 PECServer::SendPacket()
 {
+
+          std::string server = m_interestName.getSubName(2,1).toUri() + m_interestName.getSubName(3,1).toUri().substr(1);
+
 	// Set default size for payload interets
 	if (  m_virtualPayloadSize == 0 ) {
 		m_virtualPayloadSize = 4;
@@ -300,9 +327,20 @@ PECServer::SendPacket()
 
 	seq = m_seq++;
        	//uint8_t payload[1] = {1};
+        std::string payload = m_interestName.getSubName(2,1).toUri() + m_interestName.getSubName(3,1).toUri().substr(1);
+        double promUtil = m_utilization;
+        for (auto i : pendingUtil) {
+           promUtil += i.second;
+        }
 
-        std::string payload = m_interestName.getSubName(2,1).toUri();;
-        payload +=  ","+std::to_string(int(m_utilization));
+        payload +=  ","+std::to_string(int(promUtil));
+        m_serverUpdate(GetNode()->GetId(), server, promUtil);
+
+        std::vector<std::string> services = SplitString(m_services, ' ');
+	for (uint32_t i = 0; i < services.size(); i++ ){
+		payload +=  ","+services[i];	
+	}
+	
 	shared_ptr<Name> nameWithSequence = make_shared<Name>( m_interestName );
 
 	shared_ptr<Interest> interest = make_shared<Interest>();
@@ -326,7 +364,10 @@ PECServer::SendPacket()
 	interest->setName( *nameWithSequence );
 	time::milliseconds interestLifeTime( m_interestLifeTime.GetMilliSeconds() );
 	interest->setInterestLifetime( interestLifeTime );
-	interest->setHopLimit(2);
+	if(m_inServer == 0){
+		interest->setHopLimit(1);
+	}
+	else interest->setHopLimit(2);
 
 	NS_LOG_INFO( "node( " << GetNode()->GetId() << " ) > sending Interest: " << interest->getName() /*m_interestName*/ << " with Payload = " << interest->getPayloadLength() << "bytes" );
 
@@ -339,6 +380,61 @@ PECServer::SendPacket()
 	m_sentInterest( GetNode()->GetId(), interest );
         //std::cout<<interest->getName()<<" "<<Simulator::Now().GetSeconds()<<std::endl;
 	//ScheduleNextPacket();
+}
+
+
+void
+PECServer::SendInputRequest(Name clientName, int packetsLeft)
+{
+  if (!m_active)
+    return;
+
+  NS_LOG_FUNCTION_NOARGS();
+
+  uint32_t seq = std::numeric_limits<uint32_t>::max(); // invalid
+
+  while (m_retxSeqs.size()) {
+    seq = *m_retxSeqs.begin();
+    m_retxSeqs.erase(m_retxSeqs.begin());
+    break;
+  }
+
+  if (seq == std::numeric_limits<uint32_t>::max()) {
+    if (m_seqMax != std::numeric_limits<uint32_t>::max()) {
+      if (m_seq >= m_seqMax) {
+        return; // we are totally done
+      }
+    }
+
+    seq = m_seq++;
+  }
+
+  //
+  shared_ptr<Name> nameWithSequence = make_shared<Name>(clientName);
+  nameWithSequence->appendSequenceNumber(seq);
+  //
+
+  // shared_ptr<Interest> interest = make_shared<Interest> ();
+  shared_ptr<Interest> interest = make_shared<Interest>();
+  interest->setNonce(m_rand->GetValue(0, std::numeric_limits<uint32_t>::max()));
+  interest->setName(*nameWithSequence);
+  interest->setCanBePrefix(false);
+  time::milliseconds interestLifeTime(m_interestLifeTime.GetMilliSeconds());
+  interest->setInterestLifetime(interestLifeTime);
+
+  // NS_LOG_INFO ("Requesting Interest: \n" << *interest);
+  NS_LOG_INFO("> Interest for " << seq);
+
+  WillSendOutInterest(seq);
+
+  m_transmittedInterests(interest, this, m_face);
+  m_appLink->onReceiveInterest(*interest);
+  packetsLeft--;
+  pendingInput[clientName]++;
+  if(packetsLeft != 0){
+     Simulator::Schedule(Seconds(double(0.001)), &PECServer::SendInputRequest, this, clientName, packetsLeft);
+  }
+
 }
 
 
@@ -365,6 +461,16 @@ PECServer::OnData( shared_ptr<const Data> data )
 
 	// Callback for received subscription data
 	m_receivedData( GetNode()->GetId(), data );
+        if(data->getName().getSubName(1,1).toUri()=="/input"){
+            Name clientName = data->getName().getSubName(0,3);
+	    pendingInput[clientName]--;
+	    if(pendingInput[clientName]<=0){
+               pendingInput.erase(clientName);
+               Name dName = inputMap[clientName];
+	       inputMap.erase(clientName);
+               ScheduleComputeTime(dName);
+	    }
+	}
 
 	int hopCount = 0;
 	auto hopCountTag = data->getTag<lp::HopCountTag>();
@@ -422,14 +528,41 @@ PECServer::OnInterest(shared_ptr<const Interest> interest)
     App::OnInterest(interest); // tracing inside
 
     NS_LOG_FUNCTION(this << interest);
+    if(!accepting)
+      return;
+
+
 
     // Callback for received interests
     m_receivedInterest(GetNode()->GetId(), interest);
-     //std::cout<<"gitem "<<interest->getName()<<std::endl;
+    bool sendManifest = false;
     if (interest->getName().getSubName(1,1) == "/compute"){
-       Name dName = interest->getName().toUri();
-       ScheduleComputeTime(dName);
-       return; 
+        
+       /*if(interest->getName().getSubName(3,1) == "/execute"){
+	  pendingUtil.erase(interest->getName().getSubName(2,1).toUri());
+          Name dName = interest->getName().toUri();
+          ScheduleComputeTime(dName);
+	  return;
+       }
+       else{*/ 
+          double util = rand()%m_uRaiseRange+(m_uRaise-m_uRaiseRange/2);
+	  pendingUtil[interest->getName().getSubName(2,1).toUri()] = util;
+
+          std::string server = m_interestName.getSubName(2,1).toUri()  + m_interestName.getSubName(3,1).toUri().substr(1);
+	  double promUtil = m_utilization;
+          for (auto i : pendingUtil) {
+             promUtil += i.second;
+          }
+          m_serverUpdate(GetNode()->GetId(), server, promUtil);
+          Name cname = "prefix/input/";
+	  cname.append(interest->getName().getSubName(-2,1));
+	  pendingInput[cname] = 0;
+	  inputMap[cname] =  interest->getName().toUri();
+	  Simulator::Schedule(Seconds(double(0.001)), &PECServer::SendInputRequest, this, cname, 8);
+
+          sendManifest = true;
+          return; 
+       //}
     }
     else if(interest->getName().getSubName(1,1) == "/baseQuery"){
 	SendPacket();
@@ -441,13 +574,31 @@ PECServer::OnInterest(shared_ptr<const Interest> interest)
     data->setName(interest->getName());
     data->setFreshnessPeriod(::ndn::time::milliseconds(m_freshness.GetMilliSeconds()));
 
-    std::string serverInfo = m_interestName.getSubName(2,1).toUri();
-    serverInfo += ","+std::to_string(int(m_utilization));
+    std::string serverInfo = "";
+    if(sendManifest){
+       serverInfo += "5";
+    }
+    else{
+       serverInfo += m_interestName.getSubName(2,1).toUri() + m_interestName.getSubName(3,1).toUri().substr(1);
+       double promUtil = m_utilization;
+       for (auto i : pendingUtil) {
+         promUtil += i.second; 
+       }
 
-    std::vector<uint8_t> myVector( serverInfo.begin(), serverInfo.end() );  
-    uint8_t *p = &myVector[0];
-    data->setContent( p, myVector.size()); // Add payload to interest
-
+       serverInfo += ","+std::to_string(int(promUtil));
+       std::vector<std::string> services = SplitString(m_services, ' ');
+       for (uint32_t i= 0; i < services.size(); i++ ){
+          serverInfo +=  ","+services[i];
+       }
+    }
+    if(interest->getName().getSubName(1,1) == "/baseQuery")
+    data->setContent(make_shared< ::ndn::Buffer>(m_virtualPayloadSize));
+ 
+    else{
+       std::vector<uint8_t> myVector( serverInfo.begin(), serverInfo.end() );  
+       uint8_t *p = &myVector[0];
+       data->setContent( p, myVector.size()); // Add payload to interest
+    }
     Signature signature;
     SignatureInfo signatureInfo(static_cast< ::ndn::tlv::SignatureTypeValue>(255));
 
@@ -483,12 +634,19 @@ PECServer::ScheduleComputeTime(const Name &dataName){
   //check if there is enough utilization for request
   if( (m_utilization + util) > 100.0){
      pendingRequests.push_back(dataName);
-     //std::cout<<m_interestName.getSubName(2,1).toUri()<<" ..waiting "<<m_utilization<<" "<<Simulator::Now().GetSeconds()<<"\n";
      return;
   }
   m_utilization += util;
-  std::string server = m_interestName.getSubName(2,1).toUri();
-  m_serverUpdate(GetNode()->GetId(), server, m_utilization);
+  double promUtil = m_utilization;
+  for (auto i : pendingUtil) {
+     promUtil += i.second;
+  }
+
+  std::string server = m_interestName.getSubName(2,1).toUri()  + m_interestName.getSubName(3,1).toUri().substr(1);
+  if(!accepting){
+     m_serverUpdate(GetNode()->GetId(), server, 1000);
+  }
+  else m_serverUpdate(GetNode()->GetId(), server, promUtil);
 
   Simulator::Schedule(Seconds(computeTime), &PECServer::SendData, this, dataName, util);
 }
@@ -525,7 +683,6 @@ PECServer::SendData(const Name &dataName, double util)
     data->setSignature(signature);
 
     NS_LOG_INFO("node(" << GetNode()->GetId() << ") sending DATA for " << data->getName() << " TIME: " << Simulator::Now());
-
     // to create real wire encoding
     data->wireEncode();
 
@@ -535,8 +692,11 @@ PECServer::SendData(const Name &dataName, double util)
     // Callback for tranmitted subscription data
     m_sentData(GetNode()->GetId(), data);
 
-    std::string server = m_interestName.getSubName(2,1).toUri();
-    m_serverUpdate(GetNode()->GetId(), server, m_utilization);
+    std::string server = m_interestName.getSubName(2,1).toUri() + m_interestName.getSubName(3,1).toUri().substr(1);
+  if(!accepting){
+     m_serverUpdate(GetNode()->GetId(), server, 1000);
+  }
+  else m_serverUpdate(GetNode()->GetId(), server, m_utilization);
 
 }
 
