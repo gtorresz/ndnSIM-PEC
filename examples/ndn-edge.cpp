@@ -88,9 +88,13 @@ main(int argc, char* argv[])
 
   int run = 0;
   bool proactive = 1;
+  std::string PECChange = "1.5";
+
   // Read optional command-line parameters (e.g., enable visualizer with ./waf --run=<> --visualize
   CommandLine cmd;
   cmd.AddValue("Run", "Run", run);
+  cmd.AddValue("Proactive", "Proactive", proactive);
+  cmd.AddValue("PECChange", "PECChange", PECChange);
   cmd.Parse(argc, argv);
 
   srand( run );
@@ -275,6 +279,7 @@ main(int argc, char* argv[])
 				serverHelper.SetAttribute("UtilRise", IntegerValue(15));
   				serverHelper.SetAttribute("UtilRiseRange", IntegerValue(10));
 				serverHelper.SetAttribute("Services", StringValue(ser_list));
+                                serverHelper.SetAttribute("StatChangeFreq", StringValue(PECChange));
                                 serverHelper.Install(nodes.Get(std::stoi( netParams[0] )));
 
 			     	ndnGlobalRoutingHelper.AddOrigin("prefix/baseQuery", nodes.Get(std::stoi( netParams[0] )));
@@ -305,24 +310,24 @@ main(int argc, char* argv[])
   //Open trace file for writing
   char trace[100];
   if(proactive)
-  	sprintf( trace, "ndn-proactive-run%d.csv", run );
+  	sprintf( trace, "ndn-proactive-%lf-run%d.csv", std::stod(PECChange), run );
   else
-  	sprintf( trace, "ndn-reactive-run%d.csv", run );
+  	sprintf( trace, "ndn-reactive-%lf-run%d.csv", std::stod(PECChange), run );
 
   tracefile.open( trace, std::ios::out );
   tracefile << "nodeid,event,name,time" << std::endl;
   if(proactive)
-	  sprintf( trace, "choice-proactive-run%d.csv", run );
+	  sprintf( trace, "choice-proactive-%lf-run%d.csv", std::stod(PECChange), run );
   else
-	  sprintf( trace, "choice-reactive-run%d.csv", run );
+	  sprintf( trace, "choice-reactive-%lf-run%d.csv", std::stod(PECChange), run );
 
   tracefile1.open( trace, std::ios::out );
   tracefile1 << "nodeid,event,server,util,time,list" << std::endl;
 
   if(proactive)
-          sprintf( trace, "input-proactive-run%d.csv", run );
+          sprintf( trace, "input-proactive-%lf-run%d.csv", std::stod(PECChange), run );
   else
-          sprintf( trace, "input-reactive-run%d.csv", run );
+          sprintf( trace, "input-reactive-%lf-run%d.csv", std::stod(PECChange), run );
 
   tracefileInput.open( trace, std::ios::out );
   tracefileInput << "nodeid,event,name,time" << std::endl;
