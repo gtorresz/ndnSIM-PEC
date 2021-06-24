@@ -148,6 +148,9 @@ protected:
   void
   ChooseServer();
 
+  void
+  SendObtainPacket(Name interestName);
+
 protected:
 
   Ptr<UniformRandomVariable> m_rand; ///< @brief nonce generator

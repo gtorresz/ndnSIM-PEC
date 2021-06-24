@@ -406,7 +406,7 @@ intelConsumer::OnData( shared_ptr<const Data> data )
            m_txInterval = m_dataInterval;
 	   ScheduleNextPacket();
 	}*/
-	else if(data->getName().getSubName(1,1)=="compute")
+	else if(data->getName().getSubName(1,1)=="compute" && data->getName().getSubName(-1,1)!="obtain")
 	{
 	//std::cout<<"new request\n";
            firstResponse = true;
@@ -417,14 +417,21 @@ intelConsumer::OnData( shared_ptr<const Data> data )
            PECservers.clear();
 	   bestServer = "";
 	   lowestUtil = 1000;
+           std::vector<uint8_t> payloadVector( &data->getContent().value()[0], &data->getContent().value()[data->getContent().value_size()] );
+           std::string payload(payloadVector.begin(), payloadVector.end());
+
+	   Simulator::Schedule( Seconds(std::stod(payload)), &intelConsumer::SendObtainPacket, this, data->getName() );
            m_interestName = m_queryName;
            m_interestName.append("service");
 	   m_interestName.append(m_nodeId);
 	   m_txInterval = m_longInterval;
            ScheduleNextPacket();
 
-	   m_receivedData( GetNode()->GetId(), data, m_intSent );
+	   //m_receivedData( GetNode()->GetId(), data, m_intSent );
 	}
+        else if(data->getName().getSubName(-1,1)=="obtain"){
+           m_receivedData( GetNode()->GetId(), data, m_intSent );
+        }
 	// Callback for received subscription data
 	//m_receivedData( GetNode()->GetId(), data );
 
@@ -562,6 +569,69 @@ intelConsumer::SplitString( std::string strLine, char delimiter ) {
            result.push_back( buildStr );
 
         return result;
+}
+void
+intelConsumer::SendObtainPacket(Name interestName)
+{
+        // Set default size for payload interets
+        if ( m_subscription == 0 && m_virtualPayloadSize == 0 ) {
+                m_virtualPayloadSize = 4;
+        }
+
+        if ( !m_active ) {
+                return;
+        }
+
+        NS_LOG_FUNCTION_NOARGS();
+
+        uint32_t seq = std::numeric_limits<uint32_t>::max();
+
+        while ( m_retxSeqs.size() ) {
+
+                seq = *m_retxSeqs.begin();
+                m_retxSeqs.erase( m_retxSeqs.begin() );
+                break;
+        }
+
+        if ( m_seqMax != std::numeric_limits<uint32_t>::max() ) {
+
+                if ( m_seq >= m_seqMax ) {
+                        return;
+                }
+        }
+
+        shared_ptr<Interest> interest = make_shared<Interest>();
+        interest->setNonce( m_rand->GetValue( 0, std::numeric_limits<uint32_t>::max() ) );
+        interest->setSubscription( m_subscription );
+        interestName.append("obtain");
+
+        //if ( m_subscription == 0 ) {
+//              interest->setPayload( payload, m_virtualPayloadSize ); //add payload to interest
+//      }
+
+        interest->setName( interestName );
+        time::milliseconds interestLifeTime( m_interestLifeTime.GetMilliSeconds() );
+        interest->setInterestLifetime( interestLifeTime );
+
+        NS_LOG_INFO( "node( " << GetNode()->GetId() << " ) > sending Interest: " << interest->getName() /*m_interestName*/ << " with Payload = " << interest->getPayloadLength() << "bytes" );
+
+        if(interest->getName().getSubName(1,1).toUri()=="/service")
+                interest->setHopLimit(1);
+        else {
+           time::milliseconds lifeTime(Seconds( 5 ).GetMilliSeconds());
+           interest->setInterestLifetime( lifeTime );
+        }
+
+        //WillSendOutInterest( seq );
+
+        m_transmittedInterests( interest, this, m_face );
+        //std::cout<<interest->getName() <<std::endl;
+        m_appLink->onReceiveInterest( *interest );
+
+        // Callback for sent payload interests
+        //if(m_subscription==1){
+        //   m_sentInterest( GetNode()->GetId(), interest );
+        //}
 }
 
 } // namespace ndn

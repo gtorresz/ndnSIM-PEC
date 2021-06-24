@@ -122,6 +122,7 @@ public:
   SplitString( std::string strLine, char delimiter );
 
 public:
+  typedef void (*OverheadTraceCallback)( uint32_t );
   typedef void (*ReceivedInterestTraceCallback)( uint32_t, shared_ptr<const Interest> );
   typedef void (*SentDataTraceCallback)( uint32_t, shared_ptr<const Data> );
   typedef void (*SentInterestTraceCallback)( uint32_t, shared_ptr<const Interest> );
@@ -174,6 +175,7 @@ private:
   bool isFresh = false;
 
 protected:
+  TracedCallback < uint32_t > m_overhead;
   TracedCallback < uint32_t, shared_ptr<const Interest> > m_sentInterest;
   TracedCallback < uint32_t, shared_ptr<const Data> > m_receivedData;
   TracedCallback <  uint32_t, shared_ptr<const Interest> > m_receivedInterest;

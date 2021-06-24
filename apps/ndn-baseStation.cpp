@@ -86,6 +86,10 @@ BaseStation::GetTypeId(void)
                     MakeTimeChecker())
 
 
+     .AddTraceSource( "Overhead", "Overhead",
+                      MakeTraceSourceAccessor( &BaseStation::m_overhead ),
+                      "ns3::ndn::BaseStationConsumer::OverheadTraceCallback" )
+
       .AddTraceSource( "SentInterest", "SentInterest",
                       MakeTraceSourceAccessor( &BaseStation::m_sentInterest ),
                       "ns3::ndn::BaseStationConsumer::SentInterestTraceCallback" )
@@ -310,7 +314,7 @@ BaseStation::SendToInServers()
         m_appLink->onReceiveInterest( *interest );
 
         // Callback for sent payload interests
-        m_sentInterest( GetNode()->GetId(), interest );
+        //m_sentInterest( GetNode()->GetId(), interest );
 
   }
 }
@@ -341,7 +345,8 @@ BaseStation::OnData( shared_ptr<const Data> data )
         if (newServers.empty()){
            Simulator::Schedule( Seconds( double( 0.005 ) ), &BaseStation::SendGathered, this );
          }
-	
+         m_overhead( GetNode()->GetId());
+
         //std::cout<<"Datata "<<data->getName()<<" "<<payload<<"hmm"<<std::endl;
 
 	std::vector<std::string> server = SplitString(payload, ',');
@@ -488,6 +493,8 @@ BaseStation::OnInterest(shared_ptr<const Interest> interest)
     //else if(payload == "remove") 
 	    //servers.erase(server);
     else if (interest->getName().getSubName(1,1).toUri() == "/update"){
+    m_overhead( GetNode()->GetId());
+
      if ( newServers.empty())
            Simulator::Schedule( Seconds( double( 0.005 ) ), &BaseStation::SendGathered, this );    
  

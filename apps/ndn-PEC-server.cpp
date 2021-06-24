@@ -120,6 +120,9 @@ PECServer::GetTypeId( void )
       .AddAttribute( "StatChangeFreq", "If PEC how often status may change.", TimeValue( Seconds( 5 ) ),
                     MakeTimeAccessor( &PECServer::m_changeInterval ), MakeTimeChecker() )
 
+      .AddAttribute( "ComRate", "Rate used to multiply against computed com time", DoubleValue( 1 ),
+                    MakeIntegerAccessor( &PECServer::m_cr ), MakeDoubleChecker<double>() )
+
 
       .AddTraceSource( "LastRetransmittedInterestDataDelay",
                       "Delay between last retransmitted Interest and received Data",
@@ -166,8 +169,8 @@ PECServer::PECServer()
    
    NS_LOG_FUNCTION_NOARGS();
    m_rtt = CreateObject<RttMeanDeviation>();
-   m_comTime->SetAttribute ("Mean", DoubleValue (1.0669998));
-   m_comTime->SetAttribute ("Variance", DoubleValue (0.02718056));
+   m_comTime->SetAttribute ("Mean", DoubleValue (1.0);
+   m_comTime->SetAttribute ("Variance", DoubleValue (0.03));
 
 }
 
@@ -468,6 +471,8 @@ PECServer::OnData( shared_ptr<const Data> data )
                pendingInput.erase(clientName);
                Name dName = inputMap[clientName];
 	       inputMap.erase(clientName);
+               dName.append("obtain");
+               pendingData[dName] = 0;  
                ScheduleComputeTime(dName);
 	    }
 	}
@@ -535,8 +540,9 @@ PECServer::OnInterest(shared_ptr<const Interest> interest)
 
     // Callback for received interests
     m_receivedInterest(GetNode()->GetId(), interest);
+    std::string payload = "";
     bool sendManifest = false;
-    if (interest->getName().getSubName(1,1) == "/compute"){
+    if (interest->getName().getSubName(1,1) == "/compute" && interest->getName().getSubName(-1,1)!="obtain"){
         
        /*if(interest->getName().getSubName(3,1) == "/execute"){
 	  pendingUtil.erase(interest->getName().getSubName(2,1).toUri());
@@ -560,12 +566,25 @@ PECServer::OnInterest(shared_ptr<const Interest> interest)
 	  inputMap[cname] =  interest->getName().toUri();
 	  Simulator::Schedule(Seconds(double(0.001)), &PECServer::SendInputRequest, this, cname, 8);
 
-          sendManifest = true;
-          return; 
+          //sendManifest = true;
+          //return; 
+	  double BCT = std::max((double)0, m_comTime->GetValue());
+	  double computeTime = BCT * (m_cr+m_utilization/100);
+          payload = std::to_string(computeTime);
        //}
     }
     else if(interest->getName().getSubName(1,1) == "/baseQuery"){
 	SendPacket();
+    }
+    if(interest->getName().getSubName(-11,1) == "/obtain"){
+       if(pendingData.find(interest->getName()) == pendingData.end()) return;
+       if(pendingData[interest->getName()] == 0 || pendingData[interest->getName()] == 1 ){
+          pendingData[interest->getName()] = 1;
+          return;
+       }
+       if(pendingData[interest->getName()] == 2){
+          pendingData.erase(interest->getName());
+       }
     }
     if (!m_active)
         return;
@@ -594,6 +613,11 @@ PECServer::OnInterest(shared_ptr<const Interest> interest)
     if(interest->getName().getSubName(1,1) == "/baseQuery")
     data->setContent(make_shared< ::ndn::Buffer>(m_virtualPayloadSize));
  
+    else if (interest->getName().getSubName(1,1) == "/compute"){
+       std::vector<uint8_t> myVector( payload.begin(), payload.end() );
+       uint8_t *p = &myVector[0];
+       data->setContent( p, myVector.size()); // Add payload to interest
+    }
     else{
        std::vector<uint8_t> myVector( serverInfo.begin(), serverInfo.end() );  
        uint8_t *p = &myVector[0];
@@ -628,7 +652,7 @@ void
 PECServer::ScheduleComputeTime(const Name &dataName){
   //get sompute time
   double BCT = std::max((double)0, m_comTime->GetValue());
-  double computeTime = BCT * (1.0+m_utilization/100);
+  double computeTime = BCT * (m_cr+m_utilization/100);
   //std::cout<<"Base time: "<<BCT<<" Real time: "<<computeTime<<std::endl;
   double util = rand()%m_uRaiseRange+(m_uRaise-m_uRaiseRange/2);
   //check if there is enough utilization for request
@@ -657,6 +681,12 @@ PECServer::SendData(const Name &dataName, double util)
 {
     if (!m_active)
         return;
+
+    if(pendingData[dataName] == 0){
+       pendingData[dataName] = 2;
+       return;
+    }
+    else if(pendingData[dataName] == 2) return;
 
     m_utilization -= util;
     if(!pendingRequests.empty()){

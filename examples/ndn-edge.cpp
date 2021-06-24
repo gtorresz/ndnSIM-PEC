@@ -59,8 +59,9 @@ void SentInterestCallback( uint32_t, shared_ptr<const ndn::Interest> );
 
 void SentInterestPECCallback( uint32_t, shared_ptr<const ndn::Interest> );
 
-void BaseStationCallback( uint32_t, shared_ptr<const ndn::Interest> );
+void BaseStationCallback( uint32_t );
 
+void DisStartCallback(uint32_t);
 void ReceivedDataCallback( uint32_t, shared_ptr<const ndn::Data>, int );
 
 void ReceivedInterestCallback( uint32_t, shared_ptr<const ndn::Interest> );
@@ -217,6 +218,8 @@ main(int argc, char* argv[])
 				//ndnGlobalRoutingHelper.AddOrigin("prefix/service", nodes.Get(std::stoi( netParams[0])));
 				
                                 strcallback = "/NodeList/"+netParams[0]+"/ApplicationList/*/SentInterest";
+                                Config::ConnectWithoutContext( strcallback, MakeCallback( &DisStartCallback ) );
+                                strcallback = "/NodeList/"+netParams[0]+"/ApplicationList/*/Overhead";
                                 Config::ConnectWithoutContext( strcallback, MakeCallback( &BaseStationCallback ) );
 				
 
@@ -280,6 +283,8 @@ main(int argc, char* argv[])
   				serverHelper.SetAttribute("UtilRiseRange", IntegerValue(10));
 				serverHelper.SetAttribute("Services", StringValue(ser_list));
                                 serverHelper.SetAttribute("StatChangeFreq", StringValue(PECChange));
+                                serverHelper.SetAttribute("ComRate", DoubleValue(1.5));
+
                                 serverHelper.Install(nodes.Get(std::stoi( netParams[0] )));
 
 			     	ndnGlobalRoutingHelper.AddOrigin("prefix/baseQuery", nodes.Get(std::stoi( netParams[0] )));
@@ -353,11 +358,15 @@ void SentInterestPECCallback( uint32_t nodeid, shared_ptr<const ndn::Interest> i
 }
 
 
-void BaseStationCallback( uint32_t nodeid, shared_ptr<const ndn::Interest> interest){
-  tracefile << nodeid << ",over," << interest->getName() << "," << std::fixed << setprecision( 9 ) <<
+void BaseStationCallback( uint32_t nodeid){
+  tracefile << nodeid << ",over," << "__"<< "," << std::fixed << setprecision( 9 ) <<
           ( Simulator::Now().GetNanoSeconds() )/1000000000.0 << std::endl;
 }
 
+void DisStartCallback( uint32_t nodeid){
+  tracefile << nodeid << ",dis," << "__"<< "," << std::fixed << setprecision( 9 ) <<
+          ( Simulator::Now().GetNanoSeconds() )/1000000000.0 << std::endl;
+}
 
 
 void ReceivedDataCallback( uint32_t nodeid, shared_ptr<const ndn::Data> data, int offset){

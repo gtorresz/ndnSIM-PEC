@@ -190,6 +190,7 @@ protected:
   uint32_t m_inServer;
   Name m_keyLocator;
   double m_utilization;
+  double m_cr;
   int m_uMin;
   int m_uRange;
   int m_uRaise;
@@ -198,6 +199,7 @@ protected:
   std::vector<Name> pendingRequests;
   std::unordered_map<std::string, double> pendingUtil;
   std::unordered_map<Name, int> pendingInput;
+  std::unordered_map<Name, int> pendingData;
   std::unordered_map<Name, Name> inputMap;
   bool accepting = true;
 
