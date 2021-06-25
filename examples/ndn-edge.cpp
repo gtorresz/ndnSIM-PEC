@@ -61,7 +61,7 @@ void SentInterestPECCallback( uint32_t, shared_ptr<const ndn::Interest> );
 
 void BaseStationCallback( uint32_t );
 
-void DisStartCallback(uint32_t);
+void DisStartCallback(uint32_t, shared_ptr<const ndn::Interest>);
 void ReceivedDataCallback( uint32_t, shared_ptr<const ndn::Data>, int );
 
 void ReceivedInterestCallback( uint32_t, shared_ptr<const ndn::Interest> );
@@ -363,7 +363,7 @@ void BaseStationCallback( uint32_t nodeid){
           ( Simulator::Now().GetNanoSeconds() )/1000000000.0 << std::endl;
 }
 
-void DisStartCallback( uint32_t nodeid){
+void DisStartCallback( uint32_t nodeid, shared_ptr<const ndn::Interest>){
   tracefile << nodeid << ",dis," << "__"<< "," << std::fixed << setprecision( 9 ) <<
           ( Simulator::Now().GetNanoSeconds() )/1000000000.0 << std::endl;
 }

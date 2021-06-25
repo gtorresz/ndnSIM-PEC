@@ -169,7 +169,7 @@ PECServer::PECServer()
    
    NS_LOG_FUNCTION_NOARGS();
    m_rtt = CreateObject<RttMeanDeviation>();
-   m_comTime->SetAttribute ("Mean", DoubleValue (1.0);
+   m_comTime->SetAttribute ("Mean", DoubleValue (1.0));
    m_comTime->SetAttribute ("Variance", DoubleValue (0.03));
 
 }
