@@ -469,9 +469,10 @@ PECServer::OnData( shared_ptr<const Data> data )
 	    pendingInput[clientName]--;
 	    if(pendingInput[clientName]<=0){
                pendingInput.erase(clientName);
-               Name dName = inputMap[clientName];
-	       inputMap.erase(clientName);
+               Name dName = inputMap[clientName].getSubName(0,  inputMap[clientName].size()-1) ;
                dName.append("obtain");
+               dName.append(inputMap[clientName].getSubName(-1, 1));
+               inputMap.erase(clientName);
                pendingData[dName] = 0;  
                ScheduleComputeTime(dName);
 	    }

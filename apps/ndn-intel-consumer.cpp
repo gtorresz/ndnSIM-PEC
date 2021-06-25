@@ -406,7 +406,7 @@ intelConsumer::OnData( shared_ptr<const Data> data )
            m_txInterval = m_dataInterval;
 	   ScheduleNextPacket();
 	}*/
-	else if(data->getName().getSubName(1,1)=="compute" && data->getName().getSubName(-1,1)!="obtain")
+	else if(data->getName().getSubName(1,1)=="compute" && data->getName().getSubName(-2,1)!="obtain")
 	{
 	//std::cout<<"new request\n";
            firstResponse = true;
@@ -429,7 +429,7 @@ intelConsumer::OnData( shared_ptr<const Data> data )
 
 	   //m_receivedData( GetNode()->GetId(), data, m_intSent );
 	}
-        else if(data->getName().getSubName(-1,1)=="obtain"){
+        else if(data->getName().getSubName(-2,1)=="obtain"){
            m_receivedData( GetNode()->GetId(), data, m_intSent );
         }
 	// Callback for received subscription data
@@ -601,9 +601,13 @@ intelConsumer::SendObtainPacket(Name interestName)
         }
 
         shared_ptr<Interest> interest = make_shared<Interest>();
-        interest->setNonce( m_rand->GetValue( 0, std::numeric_limits<uint32_t>::max() ) );
+        interest->setNonce( m_rand->GetValue( 0, std::numeric_limits<uint32_t>::max()));
         interest->setSubscription( m_subscription );
+        Name se = interestName.getSubName(-1, 1);
+        interestName = interestName.getSubName(0,  interestName.size()-1);
         interestName.append("obtain");
+        interestName.append( se );
+
 
         //if ( m_subscription == 0 ) {
 //              interest->setPayload( payload, m_virtualPayloadSize ); //add payload to interest
