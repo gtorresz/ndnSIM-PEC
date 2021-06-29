@@ -90,12 +90,15 @@ main(int argc, char* argv[])
   int run = 0;
   bool proactive = 1;
   std::string PECChange = "1.5";
-
+  double userRequest = 1;
+  double discovery = 1;
   // Read optional command-line parameters (e.g., enable visualizer with ./waf --run=<> --visualize
   CommandLine cmd;
   cmd.AddValue("Run", "Run", run);
   cmd.AddValue("Proactive", "Proactive", proactive);
   cmd.AddValue("PECChange", "PECChange", PECChange);
+  cmd.AddValue("UserRequest", "UserRequest", userRequest);
+  cmd.AddValue("Discovery", "Discovery", discovery);
   cmd.Parse(argc, argv);
 
   srand( run );
@@ -212,7 +215,7 @@ main(int argc, char* argv[])
 				baseStationHelper.SetAttribute("PayloadSize", StringValue("1024"));
 			     	baseStationHelper.SetAttribute("UpdatePrefix",StringValue("/prefix/baseQuery/"+netParams[0]));
 			     	baseStationHelper.SetAttribute("Proactive",IntegerValue( proactive ));
-				baseStationHelper.SetAttribute( "Frequency", StringValue( "1" ) );
+				baseStationHelper.SetAttribute( "Frequency", StringValue( std::to_string(discovery) ) );
 				baseStationHelper.Install(nodes.Get(std::stoi( netParams[0] ))); // last node
                                 ndnGlobalRoutingHelper.AddOrigin("prefix", nodes.Get(std::stoi( netParams[0])));
 				//ndnGlobalRoutingHelper.AddOrigin("prefix/service", nodes.Get(std::stoi( netParams[0])));
@@ -231,7 +234,7 @@ main(int argc, char* argv[])
                                 sprintf(temp, "%d", (rand()%3)+1);
 				netParams = SplitString( strLine );
 				consumerHelper.SetPrefix("/prefix");
-				consumerHelper.SetAttribute("Frequency", StringValue(".1")); // 10 interests a second
+				consumerHelper.SetAttribute("Frequency", StringValue(std::to_string(userRequest))); // 10 interests a second
 				consumerHelper.SetAttribute("Service", StringValue(temp));
 				consumerHelper.SetAttribute( "PayloadSize", StringValue( "200" ) );
 				consumerHelper.SetAttribute( "RetransmitPackets", IntegerValue( 0 ) );
@@ -315,24 +318,24 @@ main(int argc, char* argv[])
   //Open trace file for writing
   char trace[100];
   if(proactive)
-  	sprintf( trace, "ndn-proactive-%lf-run%d.csv", std::stod(PECChange), run );
+  	sprintf( trace, "ndn-proactive-%lf-%lf-%lf-run%d.csv", std::stod(PECChange), discovery, userRequest, run );
   else
-  	sprintf( trace, "ndn-reactive-%lf-run%d.csv", std::stod(PECChange), run );
+  	sprintf( trace, "ndn-reactive-%lf-%lf-%lf-run%d.csv", std::stod(PECChange), discovery, userRequest, run );
 
   tracefile.open( trace, std::ios::out );
   tracefile << "nodeid,event,name,time" << std::endl;
   if(proactive)
-	  sprintf( trace, "choice-proactive-%lf-run%d.csv", std::stod(PECChange), run );
+	  sprintf( trace, "choice-proactive-%lf-%lf-%lf-run%d.csv", std::stod(PECChange), discovery, userRequest, run );
   else
-	  sprintf( trace, "choice-reactive-%lf-run%d.csv", std::stod(PECChange), run );
+	  sprintf( trace, "choice-reactive-%lf-%lf-%lf-run%d.csv", std::stod(PECChange), discovery, userRequest, run );
 
   tracefile1.open( trace, std::ios::out );
   tracefile1 << "nodeid,event,server,util,time,list" << std::endl;
 
   if(proactive)
-          sprintf( trace, "input-proactive-%lf-run%d.csv", std::stod(PECChange), run );
+          sprintf( trace, "input-proactive-%lf-%lf-%lf-run%d.csv", std::stod(PECChange), discovery, userRequest, run );
   else
-          sprintf( trace, "input-reactive-%lf-run%d.csv", std::stod(PECChange), run );
+          sprintf( trace, "input-reactive-%lf-%lf-%lf-run%d.csv", std::stod(PECChange), discovery, userRequest, run );
 
   tracefileInput.open( trace, std::ios::out );
   tracefileInput << "nodeid,event,name,time" << std::endl;
