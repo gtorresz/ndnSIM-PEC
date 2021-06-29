@@ -357,8 +357,10 @@ intelConsumer::OnData( shared_ptr<const Data> data )
 		      hasService = true;
 		}	
                 //std::cout<<servers[i]<<std::endl;
-                if(hasService && PECservers[server[0]] == 0)
+                if(hasService && PECservers[server[0]] == 0){
 	           PECservers[server[0]] = std::stoi(server[1]);
+                   conMap[server[0]] = false;
+                }
 	     }
 	  }
 	  else 
@@ -370,8 +372,10 @@ intelConsumer::OnData( shared_ptr<const Data> data )
                 if(server[k] == m_service)
                    hasService = true;
              }
-	     if(hasService)
+	     if(hasService){
                 PECservers[server[0]] = std::stoi(server[1]);	   
+                conMap[server[0]] = true;
+	     }
   	  }
 
           //for (auto i : PECservers) 
@@ -516,7 +520,7 @@ intelConsumer::ChooseServer()
    //m_intSent = 0;
    SendPacket();
 
-   m_serverChoice(GetNode()->GetId(), bestServer, lowestUtil, ser);
+   m_serverChoice(GetNode()->GetId(), bestServer, lowestUtil, ser, conMap[bestServer]);
 }
 
 void

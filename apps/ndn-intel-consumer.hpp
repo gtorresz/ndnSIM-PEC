@@ -102,7 +102,7 @@ public:
 
   typedef void (*SentInterestTraceCallback)( uint32_t, shared_ptr<const Interest> );
   typedef void (*ReceivedDataTraceCallback)( uint32_t, shared_ptr<const Data>, int );
-  typedef void (*ServerChoiceTraceCallback)( uint32_t, std::string, int, std::string );
+  typedef void (*ServerChoiceTraceCallback)( uint32_t, std::string, int, std::string, bool );
 
 protected:
 
@@ -180,6 +180,7 @@ protected:
   int m_dataReq;
   int lowestUtil = 1000;
   std::unordered_map<std::string, int> PECservers;
+  std::unordered_map<std::string, bool> conMap;
   bool firstResponse = true;
   Ptr<RttEstimator> m_rtt; ///< @brief RTT estimator
   int m_intSent =0;
@@ -252,7 +253,7 @@ protected:
 
   TracedCallback < uint32_t, shared_ptr<const Interest> > m_sentInterest;
   TracedCallback < uint32_t, shared_ptr<const Data>, int > m_receivedData;
-  TracedCallback < uint32_t, std::string, int, std::string > m_serverChoice;
+  TracedCallback < uint32_t, std::string, int, std::string, bool > m_serverChoice;
 
 };
 

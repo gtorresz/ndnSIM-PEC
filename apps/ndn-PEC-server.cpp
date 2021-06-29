@@ -150,7 +150,11 @@ PECServer::GetTypeId( void )
                       MakeTraceSourceAccessor(&PECServer::m_receivedInterest),
                       "ns3::ndn::PECServer::ReceivedInterestTraceCallback")
 
-      .AddTraceSource("ServerUpdate", "ServerUpdate",
+      .AddTraceSource("ExecuteTime", "Execute Time",
+                      MakeTraceSourceAccessor(&PECServer::m_executeTime),
+                      "ns3::ndn::PECServer::ExecuteTimeTraceCallback")  
+
+     .AddTraceSource("ServerUpdate", "ServerUpdate",
                       MakeTraceSourceAccessor(&PECServer::m_serverUpdate),
                       "ns3::ndn::PECServer::ServerUpdateTraceCallback");
       ;
@@ -674,6 +678,7 @@ PECServer::ScheduleComputeTime(const Name &dataName){
   else m_serverUpdate(GetNode()->GetId(), server, promUtil);
 
   Simulator::Schedule(Seconds(computeTime), &PECServer::SendData, this, dataName, util);
+  m_executeTime(GetNode()->GetId(), server, computeTime);
 }
 
 

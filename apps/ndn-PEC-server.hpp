@@ -113,7 +113,7 @@ public:
   typedef void (*ReceivedInterestTraceCallback)( uint32_t, shared_ptr<const Interest> );
   typedef void (*SentDataTraceCallback)( uint32_t, shared_ptr<const Data> );
   typedef void (*SeverUpdateTraceCallback)( uint32_t, std::string, int );
-
+  typedef void (*ExecuteTimeTraceCallback)( uint32_t, std::string, double );
 
 
 protected:
@@ -276,6 +276,7 @@ protected:
   TracedCallback <  uint32_t, shared_ptr<const Interest> > m_receivedInterest;
   TracedCallback <  uint32_t, shared_ptr<const Data> > m_sentData;
   TracedCallback < uint32_t, std::string, int > m_serverUpdate;
+  TracedCallback < uint32_t, std::string, double > m_executeTime;
 
 
   std::vector<std::string>

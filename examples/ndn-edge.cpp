@@ -68,16 +68,18 @@ void ReceivedInterestCallback( uint32_t, shared_ptr<const ndn::Interest> );
 
 void ReceivedDataPECCallback( uint32_t, shared_ptr<const ndn::Data>);
 
-void ServerChoiceCallback( uint32_t nodeid, std::string serverChoice, int serverUtil, std::string ser);
+void ServerChoiceCallback( uint32_t nodeid, std::string serverChoice, int serverUtil, std::string ser, bool connected);
 
 void ServerUpdateCallback( uint32_t nodeid, std::string server, int serverUtil);
+void ExecuteCallback( uint32_t nodeid, std::string server, double time);
+
 std::vector<std::string> SplitString(std::string strLine);
 
 
 std::ofstream tracefile;
 std::ofstream tracefileInput;
 std::ofstream tracefile1;
-
+std::ofstream tracefileE;
 
 int
 main(int argc, char* argv[])
@@ -201,6 +203,9 @@ main(int argc, char* argv[])
                              	servercount++;
  				strcallback = "/NodeList/"+netParams[0]+"/ApplicationList/*/ServerUpdate";
   				Config::ConnectWithoutContext( strcallback, MakeCallback( & ServerUpdateCallback ) );
+                                strcallback = "/NodeList/"+netParams[0]+"/ApplicationList/*/ExecuteTime";
+                                Config::ConnectWithoutContext( strcallback, MakeCallback( &ExecuteCallback ) );
+
                                 strcallback = "/NodeList/"+netParams[0]+"/ApplicationList/*/SentInterest";
                                 Config::ConnectWithoutContext( strcallback, MakeCallback( &SentInterestPECCallback ) );
                                 strcallback = "/NodeList/"+netParams[0]+"/ApplicationList/*/ReceivedData";
@@ -330,7 +335,14 @@ main(int argc, char* argv[])
 	  sprintf( trace, "choice-reactive-%lf-%lf-%lf-run%d.csv", std::stod(PECChange), discovery, userRequest, run );
 
   tracefile1.open( trace, std::ios::out );
-  tracefile1 << "nodeid,event,server,util,time,list" << std::endl;
+  tracefile1 << "nodeid,event,name,time" << std::endl;
+  if(proactive)
+          sprintf( trace, "execute-proactive-%lf-%lf-%lf-run%d.csv", std::stod(PECChange), discovery, userRequest, run );
+  else
+          sprintf( trace, "execute-reactive-%lf-%lf-%lf-run%d.csv", std::stod(PECChange), discovery, userRequest, run );
+
+  tracefileE.open( trace, std::ios::out );
+  tracefileE << "nodeid,event,server,util,time,list,connected" << std::endl;
 
   if(proactive)
           sprintf( trace, "input-proactive-%lf-%lf-%lf-run%d.csv", std::stod(PECChange), discovery, userRequest, run );
@@ -395,9 +407,14 @@ void ReceivedInterestCallback( uint32_t nodeid, shared_ptr<const ndn::Interest> 
           ( Simulator::Now().GetNanoSeconds() )/1000000000.0 << std::endl;
 }
 
-void ServerChoiceCallback( uint32_t nodeid, std::string serverChoice, int serverUtil, std::string ser){
+void ServerChoiceCallback( uint32_t nodeid, std::string serverChoice, int serverUtil, std::string ser, bool connected){
   tracefile1 << nodeid << ",choice," << serverChoice << "," << serverUtil << "," << std::fixed << setprecision( 9 ) <<
-          ( Simulator::Now().GetNanoSeconds() )/1000000000.0 << "," << ser << std::endl;
+          ( Simulator::Now().GetNanoSeconds() )/1000000000.0 << "," << ser << "," << connected<<std::endl;
+}
+
+void ExecuteCallback( uint32_t nodeid, std::string server,double time){
+  tracefileE << nodeid << ",exec," << server << "," << time << "," << std::fixed << setprecision( 9 ) <<
+          ( Simulator::Now().GetNanoSeconds() )/1000000000.0 << std::endl;
 }
 
 void ServerUpdateCallback( uint32_t nodeid, std::string server, int serverUtil){
