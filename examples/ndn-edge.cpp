@@ -180,6 +180,7 @@ main(int argc, char* argv[])
 					services.erase(services.begin()+choice);
 				}
 
+                                ser_list = "1 2 3";
                                 netParams = SplitString( strLine );
   			     	serverHelper.SetPrefix("/prefix/server"+std::to_string(servercount));
 			     	serverHelper.SetAttribute("UpdatePrefix",StringValue("/prefix/update/server/"+std::to_string(servercount)));
